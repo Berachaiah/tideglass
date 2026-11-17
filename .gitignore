@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+.node_modules.lock
+
+# build output
+dist/
+.output/
+.vercel/
+
+# local runtime state
+.grok/status
+.grok/preview.log
+.freebuff/
+*.log
+
+# env files (the platform injects these on deploy)
+.env
+.env.*
+!.env.example
+
+# QA screenshots
+screenshots/
