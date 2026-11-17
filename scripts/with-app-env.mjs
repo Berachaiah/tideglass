@@ -27,6 +27,9 @@ import { fileURLToPath } from "node:url";
 
 export const APP_ENV_REL_PATH = ".grok/app-env.json";
 
+/** Local secrets (gitignored): DATABASE_URL and friends — never VITE_ flags. */
+export const LOCAL_ENV_REL_PATH = ".env.local";
+
 const VITE_PREFIX = "VITE_";
 
 /**
@@ -49,6 +52,40 @@ export function parseAppEnv(text) {
     env[key] = value;
   }
   return env;
+}
+
+/**
+ * Parse a `.env.local` document: `KEY=value` lines, `#` comments, optional
+ * surrounding quotes. Only the shape this project uses — not a dotenv superset.
+ */
+export function parseDotenv(text) {
+  const env = {};
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    env[key] = value;
+  }
+  return env;
+}
+
+/** Local secrets recorded under `root`, or `{}` when the file is absent. */
+export function readLocalSecrets(root) {
+  try {
+    return parseDotenv(readFileSync(join(root, LOCAL_ENV_REL_PATH), "utf8"));
+  } catch {
+    return {};
+  }
 }
 
 /** The app env recorded under `root`, or `{}` when the file is absent. */
@@ -110,8 +147,18 @@ function main(argv) {
     console.error("usage: node scripts/with-app-env.mjs <command> [args…]");
     process.exit(2);
   }
-  const env = mergeAppEnv(readAppEnv(projectRoot()), process.env);
-  const child = spawn(command, args, { stdio: "inherit", env });
+  const root = projectRoot();
+  // Local secrets reach the child (so `src/lib/db.ts` sees DATABASE_URL); a real
+  // process env entry still wins over the file.
+  const env = mergeAppEnv(readAppEnv(root), { ...readLocalSecrets(root), ...process.env });
+  // Windows exposes npm-installed binaries as `.cmd` shims, which Node cannot
+  // execute without a shell (`spawn vite` is ENOENT there). The arguments this
+  // wrapper is given (`dev|build|preview` plus Vite flags) are shell-safe.
+  const child = spawn(command, args, {
+    stdio: "inherit",
+    env,
+    shell: process.platform === "win32",
+  });
   // The dev server is long-running and is stopped by signalling this wrapper.
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(signal, () => child.kill(signal));

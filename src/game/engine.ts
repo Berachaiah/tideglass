@@ -1164,14 +1164,18 @@ export function createGame(
   document.addEventListener("visibilitychange", onVis);
   window.addEventListener("pagehide", persist);
 
-  const debug: TideglassDebug = {
-    getState: () => ({ ...snap(), blocks: glassCount(), hasMover: !!mover, resolving }),
-    begin,
-    drop,
-    dropPerfect,
-    dropMiss,
-  };
-  window.__tideglass = debug;
+  // Dev-only harness (browser QA drives the game through it). It must never
+  // reach a built bundle, where it would let anyone autoplay perfect drops.
+  if (import.meta.env.DEV) {
+    const debug: TideglassDebug = {
+      getState: () => ({ ...snap(), blocks: glassCount(), hasMover: !!mover, resolving }),
+      begin,
+      drop,
+      dropPerfect,
+      dropMiss,
+    };
+    window.__tideglass = debug;
+  }
 
   notify();
   raf = requestAnimationFrame(frame);
@@ -1217,7 +1221,7 @@ export function createGame(
       window.removeEventListener("keydown", onKey);
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("pagehide", persist);
-      if (window.__tideglass === debug) delete window.__tideglass;
+      if (import.meta.env.DEV) delete window.__tideglass;
       audio.destroy();
     },
   };
