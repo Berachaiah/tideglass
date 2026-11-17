@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Volume2, VolumeX } from "lucide-react";
-import { createGame, INITIAL_SNAPSHOT, TITLES, type Game, type Snapshot } from "@/game/engine";
+import {
+  createGame,
+  DIFFICULTIES,
+  INITIAL_SNAPSHOT,
+  TITLES,
+  type Difficulty,
+  type Game,
+  type Snapshot,
+} from "@/game/engine";
 import { currentStreak, loadSave, touchStreak, writeSave } from "@/game/save";
 import { postRun, retryPending, trackFinish, trackOpen, trackStart, visitorId, type Finish } from "@/game/track";
 import { shareRun } from "@/game/share";
@@ -31,6 +39,7 @@ export function GameScreen() {
   const [rivals, setRivals] = useState<BoardRow[]>([]);
   const [shareNote, setShareNote] = useState("");
   const [percentile, setPercentile] = useState<{ beaten: number; total: number } | null>(null);
+  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
 
   const snapRef = useRef(snap);
   snapRef.current = snap;
@@ -47,6 +56,7 @@ export function GameScreen() {
     if (!canvas || !root) return;
     const save = loadSave();
     setName(save.name);
+    setDifficulty(save.difficulty);
     setPlace(save.place);
     setStreak(currentStreak());
     trackOpen();
@@ -74,7 +84,7 @@ export function GameScreen() {
       trackStart(now.mode);
       if (nameRef.current) {
         const period: Period = now.mode === "daily" ? "day" : "all";
-        getBoard({ data: { period, limit: 100 } })
+        getBoard({ data: { period, limit: 100, difficulty: now.difficulty } })
           .then((board) => setRivals(board.rows))
           .catch(() => setRivals([]));
       } else {
@@ -89,6 +99,7 @@ export function GameScreen() {
         seconds: now.seconds,
         perfects: now.perfects,
         mode: now.mode,
+        difficulty: now.difficulty,
       };
       trackFinish(run);
       setStreak(touchStreak());
@@ -100,7 +111,7 @@ export function GameScreen() {
           heldRun.current = run;
         }
         const period: Period = now.mode === "daily" ? "day" : "all";
-        void getBoard({ data: { period, limit: 100, score: now.score } })
+        void getBoard({ data: { period, limit: 100, score: now.score, difficulty: now.difficulty } })
           .then((board) => setPercentile(board.percentile))
           .catch(() => setPercentile(null));
         if (loadSave().place === null) setAskPlace(true);
@@ -160,6 +171,11 @@ export function GameScreen() {
 
   const start = () => {
     gameRef.current?.begin();
+  };
+
+  const changeDifficulty = (next: Difficulty) => {
+    setDifficulty(next);
+    gameRef.current?.setDifficulty(next);
   };
 
   const status =
@@ -292,6 +308,24 @@ export function GameScreen() {
                   {snap.mode === "daily" ? (
                     <p className="mt-2 text-xs text-mist">One pattern for everyone today. Own board.</p>
                   ) : null}
+                  <div className="mt-4 grid grid-cols-3 gap-2">
+                    {(Object.keys(DIFFICULTIES) as Difficulty[]).map((id) => (
+                      <button
+                        key={id}
+                        type="button"
+                        aria-pressed={snap.difficulty === id}
+                        className={`min-h-12 rounded-xl text-sm font-semibold ${
+                          snap.difficulty === id
+                            ? "bg-foam text-ink"
+                            : "border border-foam/15 text-mist"
+                        }`}
+                        onClick={() => changeDifficulty(id)}
+                      >
+                        {DIFFICULTIES[id].label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-mist">{DIFFICULTIES[snap.difficulty].note}</p>
                   <button
                     type="button"
                     className="mt-4 flex h-14 w-full items-center justify-center rounded-full bg-ember text-lg font-semibold text-ink"
@@ -348,7 +382,7 @@ export function GameScreen() {
                   </p>
                   <p className="mt-2 font-serif text-6xl leading-none font-semibold tabular-nums">{snap.score}</p>
                   <p className="mt-2 text-sm text-mist tabular-nums">
-                    {snap.title} · Best {snap.best}
+                    {snap.title} · {DIFFICULTIES[snap.difficulty].label} · Best {snap.best}
                   </p>
                   {snap.score === 0 ? (
                     <p className="mt-3 text-base text-pretty text-mist">It has to catch the pane underneath.</p>
@@ -463,7 +497,14 @@ export function GameScreen() {
         ) : null}
       </div>
 
-      {boardTab ? <LeaderboardSheet name={name} initial={boardTab} onClose={() => setBoardTab(null)} /> : null}
+      {boardTab ? (
+        <LeaderboardSheet
+          name={name}
+          initial={boardTab}
+          difficulty={difficulty}
+          onClose={() => setBoardTab(null)}
+        />
+      ) : null}
     </div>
   );
 }

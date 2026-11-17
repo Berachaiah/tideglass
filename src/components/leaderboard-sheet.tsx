@@ -10,10 +10,12 @@ const TABS: { id: Period; label: string }[] = [
 export function LeaderboardSheet({
   name,
   initial = "all",
+  difficulty = "medium",
   onClose,
 }: {
   name: string | null;
   initial?: Period;
+  difficulty?: "easy" | "medium" | "hard";
   onClose: () => void;
 }) {
   const [period, setPeriod] = useState<Period>(initial);
@@ -24,7 +26,7 @@ export function LeaderboardSheet({
     let dead = false;
     setBoard(null);
     setFailed(false);
-    getBoard({ data: { period, name: name ?? undefined, limit: 50 } })
+    getBoard({ data: { period, name: name ?? undefined, limit: 50, difficulty } })
       .then((result) => {
         if (!dead) setBoard(result);
       })
@@ -34,7 +36,7 @@ export function LeaderboardSheet({
     return () => {
       dead = true;
     };
-  }, [period, name]);
+  }, [period, name, difficulty]);
 
   const inList = board?.rows.some((row) => row.name === name) ?? false;
 
@@ -100,6 +102,7 @@ export function LeaderboardSheet({
         <p className="mt-3 text-center text-xs text-mist">
           {board ? `${board.total} ${board.total === 1 ? "player" : "players"}` : ""}
           {period === "day" ? " · same pattern for everyone today" : ""}
+          {difficulty !== "medium" ? ` · ${difficulty} tide` : ""}
         </p>
       </section>
     </div>

@@ -1,6 +1,6 @@
 import { recordEvent } from "@/lib/engagement";
 import { submitRun, type RunResult } from "@/lib/leaderboard";
-import { loadSave } from "@/game/save";
+import { loadSave, type Difficulty } from "@/game/save";
 
 const VISITOR = "tideglass.visitor";
 const OPENED = "tideglass.opened";
@@ -52,6 +52,7 @@ type Extra = {
   seconds?: number;
   perfects?: number;
   mode?: Mode;
+  difficulty?: Difficulty;
 };
 
 function send(kind: "open" | "start" | "finish", extra: Extra = {}) {
@@ -93,10 +94,18 @@ export type Finish = {
   seconds: number;
   perfects: number;
   mode: Mode;
+  difficulty: Difficulty;
 };
 
 export function trackFinish(run: Finish) {
-  send("finish", { score: run.score, combo: run.combo, seconds: run.seconds, perfects: run.perfects, mode: run.mode });
+  send("finish", {
+    score: run.score,
+    combo: run.combo,
+    seconds: run.seconds,
+    perfects: run.perfects,
+    mode: run.mode,
+    difficulty: run.difficulty,
+  });
 }
 
 type Pending = Finish & { day: string };

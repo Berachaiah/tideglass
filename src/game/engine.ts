@@ -1,8 +1,54 @@
 import { createAudio, type AudioBus } from "@/game/audio";
-import { loadSave, writeSave } from "@/game/save";
+import { bestFor, loadSave, writeSave, type Difficulty } from "@/game/save";
+
+export type { Difficulty };
 
 export type Phase = "menu" | "play" | "over";
 export type Mode = "free" | "daily";
+
+export type DifficultySpec = {
+  label: string;
+  note: string;
+  /** Multiplies the mover's sway speed. */
+  speed: number;
+  /** Share of the pane below a drop must land on to survive. */
+  slack: number;
+  /** Width of the perfect window, as a share of the pane below. */
+  perfect: number;
+  /** Starting pane size, relative to the standard slab. */
+  startScale: number;
+  secondChance: boolean;
+};
+
+export const DIFFICULTIES: Record<Difficulty, DifficultySpec> = {
+  easy: {
+    label: "Easy",
+    note: "Wide panes, gentler sway, forgiving edges, one second chance.",
+    speed: 0.78,
+    slack: 0.06,
+    perfect: 0.2,
+    startScale: 1.05,
+    secondChance: true,
+  },
+  medium: {
+    label: "Medium",
+    note: "The tide as designed.",
+    speed: 1,
+    slack: 0.12,
+    perfect: 0.1,
+    startScale: 1,
+    secondChance: true,
+  },
+  hard: {
+    label: "Hard",
+    note: "Quick sway, a tight perfect window, no second chance.",
+    speed: 1.28,
+    slack: 0.16,
+    perfect: 0.065,
+    startScale: 0.94,
+    secondChance: false,
+  },
+};
 
 export const TITLES: [number, string][] = [
   [0, "Shoreline"],
@@ -23,6 +69,7 @@ export type Snapshot = {
   phase: Phase;
   score: number;
   best: number;
+  difficulty: Difficulty;
   combo: number;
   sound: boolean;
   shake: boolean;
@@ -40,6 +87,7 @@ export const INITIAL_SNAPSHOT: Snapshot = {
   phase: "menu",
   score: 0,
   best: 0,
+  difficulty: "medium",
   combo: 0,
   sound: true,
   shake: true,
@@ -57,6 +105,7 @@ export type Game = {
   begin: () => void;
   drop: () => void;
   setMode: (mode: Mode) => void;
+  setDifficulty: (next: Difficulty) => void;
   setGate: (gate: () => boolean) => void;
   toggleSound: () => void;
   toggleShake: () => void;
@@ -98,7 +147,7 @@ type Shard = {
   life: number;
 };
 
-type Floater = { text: string; x: number; y: number; life: number; perfect: boolean };
+type Floater = { text: string; x: number; y: number; life: number; perfect: boolean; edge?: boolean };
 type Spark = { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string };
 type Ring = { x: number; y: number; life: number };
 
@@ -191,7 +240,8 @@ export function createGame(
 
   let phase: Phase = "menu";
   let score = 0;
-  let best = save.best;
+  let difficulty: Difficulty = save.difficulty;
+  let best = bestFor(save, difficulty);
   let combo = 0;
   let sound = save.sound;
   let shake = save.shake ?? !reduced;
@@ -254,6 +304,10 @@ export function createGame(
     return { x: 0, z: 0, w: SLAB, d: SLAB, yTop: pier.y + pier.thick };
   }
 
+  function perfectTol(size: number) {
+    return Math.max(0.05, size * DIFFICULTIES[difficulty].perfect);
+  }
+
   function makeBase(): Block {
     return {
       x: 0,
@@ -270,12 +324,13 @@ export function createGame(
   }
 
   function foundation(): Block {
+    const size = SLAB * DIFFICULTIES[difficulty].startScale;
     return {
       x: 0,
       z: 0,
       y: 0,
-      w: SLAB,
-      d: SLAB,
+      w: size,
+      d: size,
       thick: THICK,
       kind: "glass",
       layer: 0,
@@ -339,9 +394,12 @@ export function createGame(
   }
 
   function persist() {
+    const current = loadSave();
     writeSave({
       version: 1,
-      best,
+      best: difficulty === "medium" ? best : current.best,
+      bests: { ...current.bests, [difficulty]: best },
+      difficulty,
       sound,
       shake: shakeTouched ? shake : null,
     });
@@ -352,6 +410,7 @@ export function createGame(
       phase,
       score,
       best,
+      difficulty,
       combo,
       sound,
       shake,
@@ -362,7 +421,7 @@ export function createGame(
       seconds,
       maxCombo,
       perfects,
-      second: !secondUsed,
+      second: DIFFICULTIES[difficulty].secondChance && !secondUsed,
     };
   }
 
@@ -502,11 +561,11 @@ export function createGame(
     const left = Math.max(prevL, movL);
     const right = Math.min(prevR, movR);
     const overlap = right - left;
-    const tol = Math.max(0.055, prevS * 0.1);
+    const tol = perfectTol(prevS);
     const m = metrics(performance.now() / 1000);
     const [sx, sy] = project(mover.x, mover.y + THICK + HOVER, mover.z, m);
 
-    if (overlap <= 0.02 || overlap < prevS * 0.12) {
+    if (overlap <= 0.02 || overlap < prevS * DIFFICULTIES[difficulty].slack) {
       pushShard(
         {
           x: mover.x,
@@ -523,7 +582,7 @@ export function createGame(
       );
       mover = null;
       combo = 0;
-      if (!secondUsed) {
+      if (!secondUsed && DIFFICULTIES[difficulty].secondChance) {
         secondUsed = true;
         landing = 0.7;
         trauma = Math.min(1, trauma + 0.3);
@@ -630,12 +689,14 @@ export function createGame(
       floaters.push({ text: TITLES[nextTitle][1], x: m.w / 2, y: m.h * 0.3, life: 1.6, perfect: true });
       if (floaters.length > 6) floaters.shift();
     }
+    const edge = !perfect && newS <= prevS * 0.42;
     floaters.push({
-      text: perfect ? (combo > 1 ? `×${combo}` : "Perfect") : "+1",
+      text: perfect ? (combo > 1 ? `×${combo}` : "Perfect") : edge ? "Edge" : "+1",
       x: sx,
       y: sy - 18,
       life: 0.9,
       perfect,
+      edge,
     });
     if (floaters.length > 6) floaters.shift();
     mover = null;
@@ -669,7 +730,7 @@ export function createGame(
     const size = mover.axis === "x" ? mover.w : mover.d;
     const overhang = Math.max(0.38, size * 0.62);
     const amp = size / 2 + overhang;
-    const speed = (0.78 + Math.min(1.2, glassCount() * 0.038)) * mover.k;
+    const speed = (0.78 + Math.min(1.2, glassCount() * 0.038)) * mover.k * DIFFICULTIES[difficulty].speed;
     mover.phase += speed * dt;
     const offset = tri(mover.phase) * amp;
     if (mover.axis === "x") {
@@ -979,6 +1040,33 @@ export function createGame(
       ctx.fillStyle = "rgba(4,10,14,0.28)";
       poly(ctx, shadow);
       ctx.fill();
+
+      // The window a drop has to land inside to count as perfect.
+      const guideTol = perfectTol(mover.axis === "x" ? fp.w : fp.d);
+      const guideC = mover.axis === "x" ? fp.x : fp.z;
+      const guideY = fp.yTop + 0.004;
+      const band =
+        mover.axis === "x"
+          ? [
+              project(Math.max(fp.x - fp.w / 2, guideC - guideTol), guideY, fp.z - fp.d / 2, m),
+              project(Math.min(fp.x + fp.w / 2, guideC + guideTol), guideY, fp.z - fp.d / 2, m),
+              project(Math.min(fp.x + fp.w / 2, guideC + guideTol), guideY, fp.z + fp.d / 2, m),
+              project(Math.max(fp.x - fp.w / 2, guideC - guideTol), guideY, fp.z + fp.d / 2, m),
+            ]
+          : [
+              project(fp.x - fp.w / 2, guideY, Math.max(fp.z - fp.d / 2, guideC - guideTol), m),
+              project(fp.x + fp.w / 2, guideY, Math.max(fp.z - fp.d / 2, guideC - guideTol), m),
+              project(fp.x + fp.w / 2, guideY, Math.min(fp.z + fp.d / 2, guideC + guideTol), m),
+              project(fp.x - fp.w / 2, guideY, Math.min(fp.z + fp.d / 2, guideC + guideTol), m),
+            ];
+      ctx.fillStyle = "rgba(232,243,238,0.15)";
+      poly(ctx, band);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(232,243,238,0.32)";
+      ctx.lineWidth = 1;
+      poly(ctx, band);
+      ctx.stroke();
+
       const bob = reduced ? 0 : Math.sin(time * 2.4) * 0.025;
       drawBlock(ctx, { ...mover, thick: THICK, kind: "glass", layer: glassCount(), settle: 0, flash: 0 }, m, 0, 1, HOVER + bob);
     }
@@ -1010,7 +1098,7 @@ export function createGame(
     ctx.font = "600 22px Fraunces, Georgia, serif";
     for (const f of floaters) {
       ctx.globalAlpha = Math.max(0, Math.min(1, f.life));
-      ctx.fillStyle = f.perfect ? "#e8956a" : "#e8f3ee";
+      ctx.fillStyle = f.perfect ? "#e8956a" : f.edge ? "#93b0a8" : "#e8f3ee";
       ctx.fillText(f.text, f.x, f.y);
     }
     ctx.globalAlpha = 1;
@@ -1097,6 +1185,14 @@ export function createGame(
     setMode(next: Mode) {
       if (phase === "play") return;
       mode = next;
+      notify();
+    },
+    setDifficulty(next: Difficulty) {
+      if (phase === "play" || next === difficulty) return;
+      difficulty = next;
+      best = bestFor(loadSave(), next);
+      crowned = false;
+      persist();
       notify();
     },
     toggleSound() {

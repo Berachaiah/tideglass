@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getSql } from "@/lib/db";
 import { checkName } from "@/lib/names";
+import type { Difficulty } from "@/game/save";
 
 export type Period = "all" | "week" | "day";
 
@@ -77,6 +78,7 @@ type RunInput = {
   drops: number;
   seconds: number;
   mode: "free" | "daily";
+  difficulty: Difficulty;
   day: string;
 };
 
@@ -89,10 +91,13 @@ function int(value: unknown, max: number) {
 function cleanRun(input: RunInput): RunInput {
   const base = cleanClaim({ name: input?.name, token: input?.token });
   const mode = input?.mode === "daily" ? "daily" : "free";
+  const difficulty: Difficulty =
+    input?.difficulty === "easy" || input?.difficulty === "hard" ? input.difficulty : "medium";
   const day = String(input?.day ?? "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error("Bad day");
   return {
     ...base,
+    difficulty,
     score: int(input?.score, 99999),
     combo: int(input?.combo, 999),
     drops: int(input?.drops, 5000),
@@ -127,12 +132,12 @@ export const submitRun = createServerFn({ method: "POST" })
     `;
     if ((recent[0]?.n ?? 0) > 0) return { ok: false, error: "Slow down a moment." };
     await sql`
-      insert into runs (player_id, score, combo, drops, seconds, mode, day)
-      values (${who.id}, ${score}, ${data.combo}, ${drops}, ${seconds}, ${data.mode}, ${data.mode === "daily" ? data.day : null})
+      insert into runs (player_id, score, combo, drops, seconds, mode, day, difficulty)
+      values (${who.id}, ${score}, ${data.combo}, ${drops}, ${seconds}, ${data.mode}, ${data.mode === "daily" ? data.day : null}, ${data.difficulty})
     `;
     const mine = await sql<{ score: number }>`
       select max(score)::int as score from runs
-      where player_id = ${who.id} and mode = ${data.mode}
+      where player_id = ${who.id} and mode = ${data.mode} and difficulty = ${data.difficulty}
         and (${data.mode} = 'free' or day = ${data.day})
     `;
     const best = mine[0]?.score ?? score;
@@ -142,14 +147,15 @@ export const submitRun = createServerFn({ method: "POST" })
         count(*)::int as total
       from (
         select max(score) as top from runs
-        where mode = ${data.mode} and (${data.mode} = 'free' or day = ${data.day})
+        where mode = ${data.mode} and difficulty = ${data.difficulty}
+          and (${data.mode} = 'free' or day = ${data.day})
         group by player_id
       ) t
     `;
     return { ok: true, rank: (ahead[0]?.n ?? 0) + 1, total: ahead[0]?.total ?? 1, best };
   });
 
-type BoardInput = { period: Period; name?: string; limit?: number; score?: number };
+type BoardInput = { period: Period; name?: string; limit?: number; score?: number; difficulty?: Difficulty };
 
 function cleanBoard(input: BoardInput): BoardInput {
   const period: Period = input?.period === "week" || input?.period === "day" ? input.period : "all";
@@ -158,7 +164,15 @@ function cleanBoard(input: BoardInput): BoardInput {
   // A finished run's score, so the board can place it without needing a name.
   const score = Math.floor(Number(input?.score));
   const cleanScore = Number.isFinite(score) && score > 0 ? Math.min(99999, score) : undefined;
-  return { period, name: checked && checked.ok ? checked.name : undefined, limit, score: cleanScore };
+  const difficulty: Difficulty =
+    input?.difficulty === "easy" || input?.difficulty === "hard" ? input.difficulty : "medium";
+  return {
+    period,
+    name: checked && checked.ok ? checked.name : undefined,
+    limit,
+    score: cleanScore,
+    difficulty,
+  };
 }
 
 export const getBoard = createServerFn({ method: "POST" })
@@ -166,12 +180,13 @@ export const getBoard = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<Board> => {
     const sql = await getSql();
     const mode = data.period === "day" ? "daily" : "free";
+    const difficulty = data.difficulty ?? "medium";
     const today = utcDay();
     const since = data.period === "week" ? utcDay(-6) : "1970-01-01";
     const rows = await sql<{ name: string; score: number; player_id: number }>`
       select p.name, max(r.score)::int as score, r.player_id
       from runs r join players p on p.id = r.player_id
-      where r.mode = ${mode}
+      where r.mode = ${mode} and r.difficulty = ${difficulty}
         and (${mode} = 'free' or r.day = ${today})
         and r.created_at >= ${since}::date
       group by r.player_id, p.name
@@ -180,7 +195,7 @@ export const getBoard = createServerFn({ method: "POST" })
     `;
     const totalRow = await sql<{ total: number }>`
       select count(distinct r.player_id)::int as total from runs r
-      where r.mode = ${mode}
+      where r.mode = ${mode} and r.difficulty = ${difficulty}
         and (${mode} = 'free' or r.day = ${today})
         and r.created_at >= ${since}::date
     `;
@@ -192,7 +207,7 @@ export const getBoard = createServerFn({ method: "POST" })
           count(*)::int as total
         from (
           select max(r.score) as top from runs r
-          where r.mode = ${mode}
+          where r.mode = ${mode} and r.difficulty = ${difficulty}
             and (${mode} = 'free' or r.day = ${today})
             and r.created_at >= ${since}::date
           group by r.player_id
@@ -208,7 +223,7 @@ export const getBoard = createServerFn({ method: "POST" })
         const mine = await sql<{ score: number }>`
           select max(r.score)::int as score
           from runs r join players p on p.id = r.player_id
-          where p.name_key = ${key.key} and r.mode = ${mode}
+          where p.name_key = ${key.key} and r.mode = ${mode} and r.difficulty = ${difficulty}
             and (${mode} = 'free' or r.day = ${today})
             and r.created_at >= ${since}::date
         `;
@@ -217,7 +232,7 @@ export const getBoard = createServerFn({ method: "POST" })
           const ahead = await sql<{ n: number }>`
             select count(*)::int as n from (
               select max(r.score) as top from runs r
-              where r.mode = ${mode}
+              where r.mode = ${mode} and r.difficulty = ${difficulty}
                 and (${mode} = 'free' or r.day = ${today})
                 and r.created_at >= ${since}::date
               group by r.player_id
