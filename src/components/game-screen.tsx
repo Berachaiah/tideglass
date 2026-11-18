@@ -10,15 +10,20 @@ import {
   MapPin,
   Palette as PaletteIcon,
   Share2,
+  Sunrise,
   Target,
   Timer,
   Trophy,
   Vibrate,
   Volume2,
   VolumeX,
-  Zap,
+  Waves,
+  type LucideIcon,
 } from "lucide-react";
 import {
+  BLITZ_PENALTY,
+  BLITZ_PERFECT_BONUS,
+  BLITZ_SECONDS,
   createGame,
   DIFFICULTIES,
   INITIAL_SNAPSHOT,
@@ -26,6 +31,7 @@ import {
   TITLES,
   type Difficulty,
   type Game,
+  type Mode,
   type Palette,
   type Snapshot,
 } from "@/game/engine";
@@ -48,6 +54,20 @@ const DIFFICULTY_HINT: Record<Difficulty, string> = {
   medium: "Classic",
   hard: "Tight",
 };
+
+/** One line under the mode switch, so each mode says how it plays. */
+const MODE_HINT: Record<Mode, string> = {
+  free: "No clock. Stack until a pane slips.",
+  daily: "One pattern for everyone today · own board",
+  blitz: `${BLITZ_SECONDS}s · perfect +${BLITZ_PERFECT_BONUS}s · miss −${BLITZ_PENALTY}s · most points wins`,
+};
+
+/** The three ways to play, as lobby cards rather than a segmented strip. */
+const MODES: { id: Mode; label: string; sub: string; icon: LucideIcon }[] = [
+  { id: "free", label: "Free play", sub: "No clock", icon: Waves },
+  { id: "daily", label: "Daily tide", sub: "Same seed", icon: Sunrise },
+  { id: "blitz", label: "Tide rush", sub: `${BLITZ_SECONDS}s`, icon: Timer },
+];
 
 function label(place: { country: string; region: string | null }) {
   return place.region ? `${place.region}, ${place.country}` : place.country;
@@ -330,19 +350,6 @@ export function GameScreen() {
         ? `Better than ${percent}% of ${percentile?.total ?? 0} players${snap.mode === "daily" ? " today" : ""}`
         : "Everyone is ahead of you — one more run.";
 
-  const modeButton = (mode: "free" | "daily", text: string) => (
-    <button
-      type="button"
-      aria-pressed={snap.mode === mode}
-      className={`min-h-10 flex-1 rounded-full px-3 text-sm font-medium transition ${
-        snap.mode === mode ? "bg-foam text-ink" : "text-mist hover:text-foam"
-      }`}
-      onClick={() => gameRef.current?.setMode(mode)}
-    >
-      {text}
-    </button>
-  );
-
   return (
     <div
       ref={rootRef}
@@ -359,9 +366,37 @@ export function GameScreen() {
               <p key={snap.score} className="score-pop font-serif text-5xl leading-none tabular-nums">
                 {snap.score}
               </p>
+              {snap.mode === "blitz" ? (
+                <div className="mt-2 w-40">
+                  <div className="flex items-baseline gap-1.5">
+                    <Timer
+                      className={`size-3.5 ${snap.timeLeft <= 10 ? "text-ember" : "text-mist"}`}
+                      strokeWidth={2}
+                    />
+                    <span
+                      className={`font-serif text-2xl leading-none font-semibold tabular-nums ${
+                        snap.timeLeft <= 10 ? "text-ember" : "text-foam"
+                      }`}
+                    >
+                      {Math.ceil(snap.timeLeft)}
+                    </span>
+                    <span className="text-[10px] font-medium tracking-[0.16em] text-mist uppercase">
+                      sec left
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-foam/10">
+                    <div
+                      className={`h-full rounded-full transition-[width] duration-200 ${
+                        snap.timeLeft <= 10 ? "bg-ember" : "bg-foam/70"
+                      }`}
+                      style={{ width: `${Math.max(0, Math.min(100, (snap.timeLeft / BLITZ_SECONDS) * 100))}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
               <p className="mt-1 text-xs font-medium tracking-widest text-mist uppercase">
                 {snap.title}
-                {snap.mode === "daily" ? " · daily tide" : ""}
+                {snap.mode === "daily" ? " · daily tide" : snap.mode === "blitz" ? " · tide rush" : ""}
               </p>
               {snap.boost > 1 ? (
                 <p className="mt-1 text-xs font-medium text-ember tabular-nums">×{snap.boost} score</p>
@@ -370,7 +405,9 @@ export function GameScreen() {
               {snap.combo > 1 ? (
                 <p className="text-sm font-medium text-ember tabular-nums">×{snap.combo} streak</p>
               ) : null}
-              {snap.second ? <p className="mt-1 text-xs text-mist">Second chance ready</p> : null}
+              {snap.second && snap.mode !== "blitz" ? (
+                <p className="mt-1 text-xs text-mist">Second chance ready</p>
+              ) : null}
               {above ? (
                 <p className="mt-1 max-w-[16rem] truncate text-xs text-mist tabular-nums">
                   Next: {above.name} · {above.score - snap.score} to go
@@ -454,47 +491,85 @@ export function GameScreen() {
                       label="day streak"
                     />
                     <Stat
-                      icon={<Zap className="size-4" strokeWidth={1.8} />}
-                      value={boost > 1 ? `×${boost}` : "—"}
-                      label="next run"
+                      icon={<Trophy className="size-4" strokeWidth={1.8} />}
+                      value={snap.best}
+                      label="best"
                     />
                   </div>
 
-                  <div className="mt-3 rounded-full border border-foam/10 bg-ink/45 p-1">
-                    <div className="grid grid-cols-2 gap-1">
-                      {modeButton("free", "Free play")}
-                      {modeButton("daily", "Daily tide")}
-                    </div>
+                  <div role="group" aria-label="Game mode" className="mt-3 grid grid-cols-3 gap-2">
+                    {MODES.map((item) => {
+                      const Icon = item.icon;
+                      const on = snap.mode === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          aria-pressed={on}
+                          className={`relative flex min-h-[5.25rem] flex-col items-center justify-center gap-1 rounded-2xl border transition ${
+                            on ? "tile-lit text-foam" : "tile text-mist hover:text-foam"
+                          }`}
+                          onClick={() => gameRef.current?.setMode(item.id)}
+                        >
+                          <Icon className={`size-5 ${on ? "text-ember" : ""}`} strokeWidth={1.8} />
+                          <span className="text-xs leading-none font-semibold">{item.label}</span>
+                          <span className="text-[9px] font-medium tracking-[0.12em] uppercase opacity-70">
+                            {item.sub}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
-                  {snap.mode === "daily" ? (
-                    <p className="mt-2 text-center text-[11px] text-mist">
-                      One pattern for everyone today · own board
-                    </p>
-                  ) : null}
+                  <p className="mt-2 min-h-4 text-center text-[11px] text-mist">{MODE_HINT[snap.mode]}</p>
 
-                  <div className="mt-3 grid grid-cols-3 gap-2">
+                  <div role="group" aria-label="Difficulty" className="mt-3 grid grid-cols-3 gap-2">
                     {(Object.keys(DIFFICULTIES) as Difficulty[]).map((id) => (
                       <button
                         key={id}
                         type="button"
                         aria-pressed={snap.difficulty === id}
-                        className={`flex min-h-12 flex-col items-center justify-center rounded-2xl border transition ${
+                        className={`flex min-h-11 flex-col items-center justify-center rounded-xl border transition ${
                           snap.difficulty === id
-                            ? "border-foam/40 bg-foam/12 text-foam"
-                            : "border-foam/10 text-mist"
+                            ? "border-foam/35 bg-foam/10 text-foam"
+                            : "border-foam/10 text-mist hover:text-foam"
                         }`}
                         onClick={() => changeDifficulty(id)}
                       >
-                        <span className="text-sm font-semibold">{DIFFICULTIES[id].label}</span>
+                        <span className="text-[13px] font-semibold">{DIFFICULTIES[id].label}</span>
                         <span className="mt-0.5 text-[9px] tracking-[0.14em] uppercase opacity-60">
                           {DIFFICULTY_HINT[id]}
                         </span>
                       </button>
                     ))}
                   </div>
-                  <p className="mt-2 text-center text-[11px] leading-snug text-pretty text-mist">
+                  <p className="mt-1.5 text-center text-[10px] leading-snug text-pretty text-mist/80">
                     {DIFFICULTIES[snap.difficulty].note}
                   </p>
+                  <button
+                    type="button"
+                    className="btn-ember sheen mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-full text-lg font-semibold"
+                    onClick={start}
+                  >
+                    Start stacking
+                    <ArrowRight className="size-5" strokeWidth={2.2} />
+                  </button>
+                  <p className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[11px] text-mist">
+                    {boost > 1 ? (
+                      <span className="rounded-full bg-ember/15 px-2 py-0.5 font-semibold text-ember tabular-nums">
+                        ×{boost} score banked
+                      </span>
+                    ) : null}
+                    <span>Tap, click or space</span>
+                  </p>
+
+                  <div className="mt-4 flex items-center gap-2">
+                    <span className="h-px flex-1 bg-foam/10" />
+                    <span className="text-[9px] font-medium tracking-[0.24em] text-mist/70 uppercase">
+                      Between runs
+                    </span>
+                    <span className="h-px flex-1 bg-foam/10" />
+                  </div>
+
                   {canClaimGift ? (
                     <button
                       type="button"
@@ -530,18 +605,6 @@ export function GameScreen() {
                   {giftNote ? (
                     <p className="mt-2 text-center text-[11px] text-ember">{giftNote}</p>
                   ) : null}
-                  <button
-                    type="button"
-                    className="btn-ember sheen mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-full text-lg font-semibold"
-                    onClick={start}
-                  >
-                    Start stacking
-                    <ArrowRight className="size-5" strokeWidth={2.2} />
-                  </button>
-                  <p className="mt-2 text-center text-[11px] text-mist">
-                    {snap.best > 0 ? <span className="tabular-nums">Best {snap.best} · </span> : null}
-                    Tap, click or space
-                  </p>
 
                   <div className="mt-3 grid grid-cols-4 gap-2">
                     <ToolButton
@@ -591,7 +654,13 @@ export function GameScreen() {
                 <>
                   <p className="flex items-center gap-2 text-[10px] font-semibold tracking-[0.28em] text-ember uppercase">
                     {snap.crowned && snap.score > 0 ? <Crown className="size-3.5" strokeWidth={1.9} /> : null}
-                    {snap.crowned && snap.score > 0 ? "New best" : snap.mode === "daily" ? "Daily tide" : "Slipped"}
+                    {snap.crowned && snap.score > 0
+                      ? "New best"
+                      : snap.mode === "daily"
+                        ? "Daily tide"
+                        : snap.mode === "blitz"
+                          ? "Time's up"
+                          : "Slipped"}
                   </p>
                   <div className="mt-1 flex items-end justify-between gap-3">
                     <p className="font-serif text-[4.2rem] leading-[0.82] font-semibold tracking-tight tabular-nums">
@@ -630,9 +699,11 @@ export function GameScreen() {
                         <div className="tile rounded-2xl px-1 py-2.5 text-center">
                           <dt className="flex items-center justify-center gap-1 text-[9px] font-medium tracking-[0.12em] text-mist uppercase">
                             <Timer className="size-3" strokeWidth={2} />
-                            Time
+                            {snap.mode === "blitz" ? "Drops" : "Time"}
                           </dt>
-                          <dd className="mt-1.5 font-serif text-2xl leading-none tabular-nums">{clock}</dd>
+                          <dd className="mt-1.5 font-serif text-2xl leading-none tabular-nums">
+                            {snap.mode === "blitz" ? snap.drops : clock}
+                          </dd>
                         </div>
                       </dl>
                       {nextTitle ? (
@@ -687,7 +758,7 @@ export function GameScreen() {
                     </div>
                   ) : null}
 
-                  {keys > 0 && revives < MAX_REVIVES ? (
+                  {snap.mode !== "blitz" && keys > 0 && revives < MAX_REVIVES ? (
                     <button
                       type="button"
                       className="tile-lit mt-3 flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition active:scale-[0.995]"
@@ -706,9 +777,11 @@ export function GameScreen() {
                     </button>
                   ) : (
                     <p className="tile mt-3 rounded-2xl px-3 py-2.5 text-center text-[11px] text-mist">
-                      {revives >= MAX_REVIVES
-                        ? "No more keys this run."
-                        : "Gifts earn keys that keep a run alive."}
+                      {snap.mode === "blitz"
+                        ? "Tide rush ends on the clock — no revives."
+                        : revives >= MAX_REVIVES
+                          ? "No more keys this run."
+                          : "Gifts earn keys that keep a run alive."}
                     </p>
                   )}
                   <button
@@ -754,6 +827,7 @@ export function GameScreen() {
           name={name}
           initial={boardTab}
           difficulty={difficulty}
+          mode={snap.mode}
           onClose={() => setBoardTab(null)}
         />
       ) : null}

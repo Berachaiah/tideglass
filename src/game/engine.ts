@@ -1,10 +1,19 @@
 import { createAudio, type AudioBus } from "@/game/audio";
-import { bestFor, loadSave, writeSave, type Difficulty, type Palette } from "@/game/save";
+import { bestFor, blitzBestFor, loadSave, writeSave, type Difficulty, type Palette } from "@/game/save";
 
 export type { Difficulty, Palette };
 
 export type Phase = "menu" | "play" | "over";
-export type Mode = "free" | "daily";
+export type Mode = "free" | "daily" | "blitz";
+
+/** Length of a Tide rush run, in seconds. */
+export const BLITZ_SECONDS = 45;
+/** A mistimed drop costs clock instead of ending the run outright. */
+export const BLITZ_PENALTY = 2;
+/** Every perfect landing buys back a little clock. */
+export const BLITZ_PERFECT_BONUS = 4;
+/** Perfects can stretch a rush past its opening 45 seconds, up to this. */
+export const BLITZ_MAX_SECONDS = 60;
 
 export type DifficultySpec = {
   label: string;
@@ -86,6 +95,8 @@ export type Snapshot = {
   maxCombo: number;
   perfects: number;
   second: boolean;
+  /** Seconds left on the clock in Tide rush; the full clock otherwise. */
+  timeLeft: number;
 };
 
 export const INITIAL_SNAPSHOT: Snapshot = {
@@ -107,6 +118,7 @@ export const INITIAL_SNAPSHOT: Snapshot = {
   maxCombo: 0,
   perfects: 0,
   second: true,
+  timeLeft: BLITZ_SECONDS,
 };
 
 export type Game = {
@@ -304,6 +316,8 @@ export function createGame(
   let maxCombo = 0;
   let perfects = 0;
   let secondUsed = false;
+  let timeLeft = BLITZ_SECONDS;
+  let shownTime = BLITZ_SECONDS;
   let gate: () => boolean = () => true;
   let titleAt = 0;
   let runStartedAt = 0;
@@ -452,15 +466,26 @@ export function createGame(
 
   function persist() {
     const current = loadSave();
-    writeSave({
+    const patch: Parameters<typeof writeSave>[0] = {
       version: 1,
-      best: difficulty === "medium" ? best : current.best,
-      bests: { ...current.bests, [difficulty]: best },
       difficulty,
       palette,
       sound,
       shake: shakeTouched ? shake : null,
-    });
+    };
+    // Timed bests live in their own table: `best` means survival points here.
+    if (mode === "blitz") {
+      patch.bestsBlitz = { ...current.bestsBlitz, [difficulty]: best };
+    } else {
+      patch.best = difficulty === "medium" ? best : current.best;
+      patch.bests = { ...current.bests, [difficulty]: best };
+    }
+    writeSave(patch);
+  }
+
+  function modeBest() {
+    const save = loadSave();
+    return mode === "blitz" ? blitzBestFor(save, difficulty) : bestFor(save, difficulty);
   }
 
   function snap(): Snapshot {
@@ -483,6 +508,7 @@ export function createGame(
       maxCombo,
       perfects,
       second: DIFFICULTIES[difficulty].secondChance && !secondUsed,
+      timeLeft,
     };
   }
 
@@ -570,6 +596,8 @@ export function createGame(
     maxCombo = 0;
     perfects = 0;
     secondUsed = false;
+    timeLeft = BLITZ_SECONDS;
+    shownTime = BLITZ_SECONDS;
     titleAt = 0;
     runStartedAt = performance.now();
     resolving = false;
@@ -580,6 +608,23 @@ export function createGame(
     phase = "play";
     spawnMover();
     persist();
+    notify();
+  }
+
+  /** The clock ran out: the stack is banked exactly as it stands. */
+  function finishBlitz() {
+    if (phase !== "play") return;
+    timeLeft = 0;
+    shownTime = 0;
+    phase = "over";
+    mover = null;
+    pendingRevive = null;
+    resolving = false;
+    overTimer = 0;
+    landing = 0;
+    inputLock = 0;
+    combo = 0;
+    seconds = BLITZ_SECONDS;
     notify();
   }
 
@@ -649,6 +694,29 @@ export function createGame(
       );
       mover = null;
       combo = 0;
+      if (mode === "blitz") {
+        // A mistimed drop costs clock, not the run: the stack holds and the
+        // mover respawns, so a rush is one continuous countdown.
+        timeLeft = Math.max(0, timeLeft - BLITZ_PENALTY);
+        trauma = Math.min(1, trauma + 0.34);
+        audio.miss();
+        buzz(18);
+        floaters.push({
+          text: `−${BLITZ_PENALTY}s`,
+          x: m.w / 2,
+          y: m.h * 0.3,
+          life: 1.1,
+          perfect: false,
+          edge: true,
+        });
+        if (floaters.length > 6) floaters.shift();
+        if (timeLeft <= 0) finishBlitz();
+        else {
+          landing = 0.34;
+          notify();
+        }
+        return;
+      }
       if (!secondUsed && DIFFICULTIES[difficulty].secondChance) {
         secondUsed = true;
         landing = 0.7;
@@ -681,6 +749,19 @@ export function createGame(
       maxCombo = Math.max(maxCombo, combo);
       perfects += 1;
       gain = combo;
+      if (mode === "blitz") {
+        // Perfect timing is the whole skill in a rush: it pays in seconds.
+        timeLeft = Math.min(BLITZ_MAX_SECONDS, timeLeft + BLITZ_PERFECT_BONUS);
+        shownTime = Math.ceil(timeLeft);
+        floaters.push({
+          text: `+${BLITZ_PERFECT_BONUS}s`,
+          x: sx,
+          y: sy - 46,
+          life: 1.1,
+          perfect: true,
+        });
+        if (floaters.length > 6) floaters.shift();
+      }
       audio.place(glassCount(), true);
       trauma = Math.min(1, trauma + 0.26 + Math.min(0.28, combo * 0.035));
       rings.push({ x: sx, y: sy, life: 1 });
@@ -743,7 +824,11 @@ export function createGame(
     });
     score += gain * boost;
     drops += 1;
-    if (mode === "free" && score > best) {
+    if (mode === "blitz" && score > best) {
+      best = score;
+      crowned = true;
+      persist();
+    } else if (mode === "free" && score > best) {
       best = score;
       crowned = true;
       persist();
@@ -813,6 +898,16 @@ export function createGame(
   function update(dt: number) {
     if (inputLock > 0) inputLock = Math.max(0, inputLock - dt);
     trauma = Math.max(0, trauma - dt * 1.55);
+
+    if (phase === "play" && mode === "blitz") {
+      timeLeft = Math.max(0, timeLeft - dt);
+      const shown = Math.ceil(timeLeft);
+      if (shown !== shownTime) {
+        shownTime = shown;
+        notify();
+      }
+      if (timeLeft <= 0) finishBlitz();
+    }
 
     const moving = phase === "menu" || (phase === "play" && !resolving && landing <= 0);
     if (moving) updateMover(dt);
@@ -1334,12 +1429,16 @@ export function createGame(
     setMode(next: Mode) {
       if (phase === "play") return;
       mode = next;
+      best = modeBest();
+      crowned = false;
+      timeLeft = BLITZ_SECONDS;
+      shownTime = BLITZ_SECONDS;
       notify();
     },
     setDifficulty(next: Difficulty) {
       if (phase === "play" || next === difficulty) return;
       difficulty = next;
-      best = bestFor(loadSave(), next);
+      best = modeBest();
       crowned = false;
       persist();
       notify();

@@ -16,7 +16,7 @@ export type ShareInput = {
   name: string | null;
   score: number;
   title: string;
-  mode: "free" | "daily";
+  mode: "free" | "daily" | "blitz";
   drops: number;
 };
 
@@ -95,7 +95,11 @@ async function paint(input: ShareInput) {
   ctx.textAlign = "center";
   ctx.fillStyle = "#e8956a";
   ctx.font = "500 40px Outfit, sans-serif";
-  ctx.fillText(input.mode === "daily" ? "DAILY TIDE" : "TIDEGLASS", W / 2, 150);
+  ctx.fillText(
+    input.mode === "daily" ? "DAILY TIDE" : input.mode === "blitz" ? "TIDE RUSH" : "TIDEGLASS",
+    W / 2,
+    150,
+  );
   ctx.fillStyle = "#e8f3ee";
   ctx.font = "600 230px Fraunces, Georgia, serif";
   ctx.fillText(String(input.score), W / 2, 420);
@@ -115,7 +119,9 @@ export async function shareRun(input: ShareInput): Promise<"shared" | "saved" | 
   const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
   if (!blob) return "failed";
   const file = new File([blob], "tideglass.png", { type: "image/png" });
-  const text = `I stacked ${input.score} in Tideglass${input.mode === "daily" ? " (daily tide)" : ""}. Beat that.`;
+  const text = `I stacked ${input.score} in Tideglass${
+    input.mode === "daily" ? " (daily tide)" : input.mode === "blitz" ? " (timed rush)" : ""
+  }. Beat that.`;
   try {
     if (navigator.canShare?.({ files: [file] })) {
       await navigator.share({ files: [file], text, url: location.origin });

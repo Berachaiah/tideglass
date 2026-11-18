@@ -77,7 +77,7 @@ type RunInput = {
   combo: number;
   drops: number;
   seconds: number;
-  mode: "free" | "daily";
+  mode: "free" | "daily" | "blitz";
   difficulty: Difficulty;
   boost: number;
   day: string;
@@ -91,7 +91,7 @@ function int(value: unknown, max: number) {
 
 function cleanRun(input: RunInput): RunInput {
   const base = cleanClaim({ name: input?.name, token: input?.token });
-  const mode = input?.mode === "daily" ? "daily" : "free";
+  const mode = input?.mode === "daily" || input?.mode === "blitz" ? input.mode : "free";
   const difficulty: Difficulty =
     input?.difficulty === "easy" || input?.difficulty === "hard" ? input.difficulty : "medium";
   // Only the multipliers the gift calendar hands out are legal.
@@ -129,6 +129,10 @@ export const submitRun = createServerFn({ method: "POST" })
     if (data.mode === "daily" && data.day !== utcDay() && data.day !== utcDay(-1)) {
       return { ok: false, error: "That tide has already passed." };
     }
+    // A rush runs on a fixed short clock, so an all-day duration is not a legal one.
+    if (data.mode === "blitz" && data.seconds > 120) {
+      return { ok: false, error: "That run did not add up." };
+    }
     const who = await claim(data.name, data.token);
     if (!who.ok) return who;
     const sql = await getSql();
@@ -144,7 +148,7 @@ export const submitRun = createServerFn({ method: "POST" })
     const mine = await sql<{ score: number }>`
       select max(score)::int as score from runs
       where player_id = ${who.id} and mode = ${data.mode} and difficulty = ${data.difficulty}
-        and (${data.mode} = 'free' or day = ${data.day})
+        and (mode <> 'daily' or day = ${data.day})
     `;
     const best = mine[0]?.score ?? score;
     const ahead = await sql<{ n: number; total: number }>`
@@ -154,14 +158,24 @@ export const submitRun = createServerFn({ method: "POST" })
       from (
         select max(score) as top from runs
         where mode = ${data.mode} and difficulty = ${data.difficulty}
-          and (${data.mode} = 'free' or day = ${data.day})
+          and (mode <> 'daily' or day = ${data.day})
         group by player_id
       ) t
     `;
     return { ok: true, rank: (ahead[0]?.n ?? 0) + 1, total: ahead[0]?.total ?? 1, best };
   });
 
-type BoardInput = { period: Period; name?: string; limit?: number; score?: number; difficulty?: Difficulty };
+type BoardMode = "free" | "daily" | "blitz";
+
+type BoardInput = {
+  period: Period;
+  name?: string;
+  limit?: number;
+  score?: number;
+  difficulty?: Difficulty;
+  /** Which board to read. Omitted, it follows the period as it always has. */
+  mode?: BoardMode;
+};
 
 function cleanBoard(input: BoardInput): BoardInput {
   const period: Period = input?.period === "week" || input?.period === "day" ? input.period : "all";
@@ -172,12 +186,17 @@ function cleanBoard(input: BoardInput): BoardInput {
   const cleanScore = Number.isFinite(score) && score > 0 ? Math.min(99999, score) : undefined;
   const difficulty: Difficulty =
     input?.difficulty === "easy" || input?.difficulty === "hard" ? input.difficulty : "medium";
+  const mode: BoardMode | undefined =
+    input?.mode === "daily" || input?.mode === "blitz" || input?.mode === "free"
+      ? input.mode
+      : undefined;
   return {
     period,
     name: checked && checked.ok ? checked.name : undefined,
     limit,
     score: cleanScore,
     difficulty,
+    mode,
   };
 }
 
@@ -185,15 +204,16 @@ export const getBoard = createServerFn({ method: "POST" })
   .validator(cleanBoard)
   .handler(async ({ data }): Promise<Board> => {
     const sql = await getSql();
-    const mode = data.period === "day" ? "daily" : "free";
+    const mode: BoardMode = data.mode ?? (data.period === "day" ? "daily" : "free");
     const difficulty = data.difficulty ?? "medium";
     const today = utcDay();
-    const since = data.period === "week" ? utcDay(-6) : "1970-01-01";
+    const since =
+      data.period === "week" ? utcDay(-6) : data.period === "day" ? utcDay() : "1970-01-01";
     const rows = await sql<{ name: string; score: number; player_id: number }>`
       select p.name, max(r.score)::int as score, r.player_id
       from runs r join players p on p.id = r.player_id
       where r.mode = ${mode} and r.difficulty = ${difficulty}
-        and (${mode} = 'free' or r.day = ${today})
+        and (r.mode <> 'daily' or r.day = ${today})
         and r.created_at >= ${since}::date
       group by r.player_id, p.name
       order by score desc, min(r.created_at) asc
@@ -202,7 +222,7 @@ export const getBoard = createServerFn({ method: "POST" })
     const totalRow = await sql<{ total: number }>`
       select count(distinct r.player_id)::int as total from runs r
       where r.mode = ${mode} and r.difficulty = ${difficulty}
-        and (${mode} = 'free' or r.day = ${today})
+        and (r.mode <> 'daily' or r.day = ${today})
         and r.created_at >= ${since}::date
     `;
     let percentile: Board["percentile"] = null;
@@ -214,7 +234,7 @@ export const getBoard = createServerFn({ method: "POST" })
         from (
           select max(r.score) as top from runs r
           where r.mode = ${mode} and r.difficulty = ${difficulty}
-            and (${mode} = 'free' or r.day = ${today})
+            and (r.mode <> 'daily' or r.day = ${today})
             and r.created_at >= ${since}::date
           group by r.player_id
         ) t
@@ -230,7 +250,7 @@ export const getBoard = createServerFn({ method: "POST" })
           select max(r.score)::int as score
           from runs r join players p on p.id = r.player_id
           where p.name_key = ${key.key} and r.mode = ${mode} and r.difficulty = ${difficulty}
-            and (${mode} = 'free' or r.day = ${today})
+            and (r.mode <> 'daily' or r.day = ${today})
             and r.created_at >= ${since}::date
         `;
         const score = mine[0]?.score;
@@ -239,7 +259,7 @@ export const getBoard = createServerFn({ method: "POST" })
             select count(*)::int as n from (
               select max(r.score) as top from runs r
               where r.mode = ${mode} and r.difficulty = ${difficulty}
-                and (${mode} = 'free' or r.day = ${today})
+                and (r.mode <> 'daily' or r.day = ${today})
                 and r.created_at >= ${since}::date
               group by r.player_id
             ) t where top > ${score}

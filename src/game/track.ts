@@ -7,7 +7,7 @@ const OPENED = "tideglass.opened";
 const FIRST = "tideglass.first";
 const PENDING = "tideglass.pending";
 
-export type Mode = "free" | "daily";
+export type Mode = "free" | "daily" | "blitz";
 
 export function visitorId() {
   try {

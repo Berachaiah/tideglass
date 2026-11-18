@@ -20,6 +20,8 @@ export type Save = {
   version: number;
   best: number;
   bests: Partial<Record<Difficulty, number>>;
+  /** Timed-mode bests, kept apart so a rush score never reads as a survival best. */
+  bestsBlitz: Partial<Record<Difficulty, number>>;
   difficulty: Difficulty;
   /** Keys bought with nothing but patience: daily gifts and milestones. */
   keys: number;
@@ -44,6 +46,7 @@ const FALLBACK: Save = {
   version: VERSION,
   best: 0,
   bests: {},
+  bestsBlitz: {},
   difficulty: "medium",
   keys: 0,
   gifts: 0,
@@ -69,12 +72,22 @@ export function loadSave(): Save {
     if (!parsed || typeof parsed !== "object") return { ...FALLBACK };
     const row = parsed as Partial<Save>;
     const bests: Partial<Record<Difficulty, number>> = {};
+    const bestsBlitz: Partial<Record<Difficulty, number>> = {};
     if (row.bests && typeof row.bests === "object") {
       const map = row.bests as Partial<Record<string, unknown>>;
       for (const id of DIFFICULTY_IDS) {
         const value = map[id];
         if (typeof value === "number" && Number.isFinite(value) && value > 0) {
           bests[id] = Math.floor(value);
+        }
+      }
+    }
+    if (row.bestsBlitz && typeof row.bestsBlitz === "object") {
+      const map = row.bestsBlitz as Partial<Record<string, unknown>>;
+      for (const id of DIFFICULTY_IDS) {
+        const value = map[id];
+        if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+          bestsBlitz[id] = Math.floor(value);
         }
       }
     }
@@ -88,6 +101,7 @@ export function loadSave(): Save {
       version: VERSION,
       best: typeof row.best === "number" && Number.isFinite(row.best) && row.best > 0 ? Math.floor(row.best) : 0,
       bests,
+      bestsBlitz,
       difficulty: isDifficulty(row.difficulty) ? row.difficulty : "medium",
       keys: typeof row.keys === "number" && Number.isFinite(row.keys) && row.keys > 0 ? Math.floor(row.keys) : 0,
       gifts: typeof row.gifts === "number" && Number.isFinite(row.gifts) && row.gifts > 0 ? Math.floor(row.gifts) : 0,
@@ -151,6 +165,12 @@ export function bestFor(save: Save, difficulty: Difficulty): number {
   const value = save.bests[difficulty];
   if (typeof value === "number") return value;
   return difficulty === "medium" ? save.best : 0;
+}
+
+/** The local best for one difficulty in the timed mode. */
+export function blitzBestFor(save: Save, difficulty: Difficulty): number {
+  const value = save.bestsBlitz?.[difficulty];
+  return typeof value === "number" ? value : 0;
 }
 
 /** The streak to show: zero once a day has been missed. */

@@ -7,6 +7,9 @@ type Kind = (typeof KINDS)[number];
 
 export type Slice = { label: string; count: number };
 
+/** Per-mode finish totals, for the admin's mode breakdown. */
+export type ModeStat = { label: string; runs: number; average: number; best: number };
+
 export type Engagement = {
   visitors: number;
   players: number;
@@ -28,9 +31,19 @@ export type Engagement = {
   sound: Slice[];
   shake: Slice[];
   modes: Slice[];
+  modeStats: ModeStat[];
+  difficulties: Slice[];
+  rush: { runs: number; average: number; best: number; avgSeconds: number };
   places: Slice[];
   countries: Slice[];
-  recent: { score: number; combo: number; at: string }[];
+  recent: {
+    score: number;
+    combo: number;
+    seconds: number | null;
+    mode: string | null;
+    difficulty: string | null;
+    at: string;
+  }[];
 };
 
 type EventInput = {
@@ -45,7 +58,7 @@ type EventInput = {
   sound?: boolean;
   shake?: boolean;
   hour?: number;
-  mode?: "free" | "daily";
+  mode?: "free" | "daily" | "blitz";
   difficulty?: "easy" | "medium" | "hard";
   boost?: number;
 };
@@ -75,7 +88,9 @@ function cleanEvent(input: EventInput): EventInput {
   if (typeof input.shake === "boolean") out.shake = input.shake;
   const hour = Math.floor(Number(input.hour));
   if (Number.isFinite(hour) && hour >= 0 && hour <= 23) out.hour = hour;
-  if (input.mode === "daily" || input.mode === "free") out.mode = input.mode;
+  if (input.mode === "daily" || input.mode === "free" || input.mode === "blitz") {
+    out.mode = input.mode;
+  }
   if (input.difficulty === "easy" || input.difficulty === "medium" || input.difficulty === "hard") {
     out.difficulty = input.difficulty;
   }
@@ -219,8 +234,47 @@ export const getEngagement = createServerFn({ method: "POST" })
       group by 1
     `;
     const modes = await sql<Slice>`
-      select case when mode = 'daily' then 'Daily tide' else 'Free play' end as label, count(*)::int as count
+      select
+        case
+          when mode = 'daily' then 'Daily tide'
+          when mode = 'blitz' then 'Tide rush'
+          else 'Free play'
+        end as label,
+        count(*)::int as count
       from plays where kind = 'start' and mode is not null
+      group by 1
+    `;
+    const modeStats = await sql<ModeStat>`
+      select
+        case
+          when mode = 'daily' then 'Daily tide'
+          when mode = 'blitz' then 'Tide rush'
+          else 'Free play'
+        end as label,
+        count(*)::int as runs,
+        coalesce(avg(score), 0)::float8 as average,
+        coalesce(max(score), 0)::int as best
+      from plays where kind = 'finish' and mode is not null
+      group by 1
+    `;
+    const rushRows = await sql<{
+      runs: number;
+      average: number | null;
+      best: number | null;
+      seconds: number | null;
+    }>`
+      select count(*)::int as runs, avg(score) as average, max(score)::int as best, avg(seconds) as seconds
+      from plays where kind = 'finish' and mode = 'blitz'
+    `;
+    const difficulties = await sql<Slice>`
+      select
+        case
+          when difficulty = 'easy' then 'Easy'
+          when difficulty = 'hard' then 'Hard'
+          else 'Medium'
+        end as label,
+        count(*)::int as count
+      from plays where kind = 'finish' and difficulty is not null
       group by 1
     `;
     const places = await sql<Slice>`
@@ -241,8 +295,21 @@ export const getEngagement = createServerFn({ method: "POST" })
       order by 2 desc
       limit 8
     `;
-    const recent = await sql<{ score: number; combo: number; at: string }>`
-      select score::int as score, coalesce(combo, 0)::int as combo, created_at::text as at
+    const recent = await sql<{
+      score: number;
+      combo: number;
+      seconds: number | null;
+      mode: string | null;
+      difficulty: string | null;
+      at: string;
+    }>`
+      select
+        score::int as score,
+        coalesce(combo, 0)::int as combo,
+        seconds::int as seconds,
+        mode,
+        difficulty,
+        created_at::text as at
       from plays
       where kind = 'finish'
       order by created_at desc
@@ -286,8 +353,30 @@ export const getEngagement = createServerFn({ method: "POST" })
       sound,
       shake,
       modes,
+      modeStats: modeStats.map((row) => ({
+        label: row.label,
+        runs: row.runs,
+        average: Math.round(Number(row.average) * 10) / 10,
+        best: row.best,
+      })),
+      difficulties: fill(["Easy", "Medium", "Hard"], difficulties),
+      rush: {
+        runs: rushRows[0]?.runs ?? 0,
+        average:
+          rushRows[0]?.average == null ? 0 : Math.round(Number(rushRows[0].average) * 10) / 10,
+        best: rushRows[0]?.best ?? 0,
+        avgSeconds:
+          rushRows[0]?.seconds == null ? 0 : Math.round(Number(rushRows[0].seconds)),
+      },
       places,
       countries,
-      recent: recent.map((item) => ({ score: item.score, combo: item.combo, at: item.at })),
+      recent: recent.map((item) => ({
+        score: item.score,
+        combo: item.combo,
+        seconds: item.seconds == null ? null : Number(item.seconds),
+        mode: item.mode,
+        difficulty: item.difficulty,
+        at: item.at,
+      })),
     };
   });
