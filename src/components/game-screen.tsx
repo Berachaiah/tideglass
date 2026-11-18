@@ -1,21 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Volume2, VolumeX } from "lucide-react";
+import { Gift, Key, Volume2, VolumeX } from "lucide-react";
 import {
   createGame,
   DIFFICULTIES,
   INITIAL_SNAPSHOT,
+  PALETTES,
   TITLES,
   type Difficulty,
   type Game,
+  type Palette,
   type Snapshot,
 } from "@/game/engine";
-import { currentStreak, loadSave, touchStreak, writeSave } from "@/game/save";
+import { currentStreak, loadSave, todayKey, touchStreak, writeSave } from "@/game/save";
+import { GIFTS, MAX_REVIVES, giftFor, rewardText } from "@/game/rewards";
 import { postRun, retryPending, trackFinish, trackOpen, trackStart, visitorId, type Finish } from "@/game/track";
 import { shareRun } from "@/game/share";
 import { clearPlace, getBoard, savePlace, type BoardRow, type Period, type RunResult } from "@/lib/leaderboard";
 import { InstallBanner } from "@/components/install-banner";
 import { LeaderboardSheet } from "@/components/leaderboard-sheet";
 import { NameForm } from "@/components/name-form";
+import { GiftSheet } from "@/components/gift-sheet";
 
 const CREDIT_URL = "https://berachaiah-portfolio.vercel.app/";
 
@@ -40,11 +44,20 @@ export function GameScreen() {
   const [shareNote, setShareNote] = useState("");
   const [percentile, setPercentile] = useState<{ beaten: number; total: number } | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
+  const [keys, setKeys] = useState(0);
+  const [claimed, setClaimed] = useState(0);
+  const [lastGift, setLastGift] = useState<string | null>(null);
+  const [boost, setBoost] = useState(1);
+  const [palette, setPalette] = useState<Palette>("shore");
+  const [palettes, setPalettes] = useState<Palette[]>(["shore"]);
+  const [revives, setRevives] = useState(0);
+  const [giftNote, setGiftNote] = useState("");
+  const [showGifts, setShowGifts] = useState(false);
 
   const snapRef = useRef(snap);
   snapRef.current = snap;
   const gateRef = useRef({ blocked: false });
-  gateRef.current = { blocked: showName || boardTab !== null };
+  gateRef.current = { blocked: showName || boardTab !== null || showGifts };
   const nameRef = useRef<string | null>(name);
   nameRef.current = name;
   // An anonymous run waits here until a name is picked, then it is posted.
@@ -57,6 +70,12 @@ export function GameScreen() {
     const save = loadSave();
     setName(save.name);
     setDifficulty(save.difficulty);
+    setKeys(save.keys);
+    setClaimed(save.gifts);
+    setLastGift(save.lastGift);
+    setBoost(save.boost);
+    setPalette(save.palette);
+    setPalettes(save.palettes);
     setPlace(save.place);
     setStreak(currentStreak());
     trackOpen();
@@ -81,6 +100,8 @@ export function GameScreen() {
       setShareNote("");
       setPercentile(null);
       heldRun.current = null;
+      // A revive also lands here; only a fresh run resets the key budget.
+      if (from === "menu") setRevives(0);
       trackStart(now.mode);
       if (nameRef.current) {
         const period: Period = now.mode === "daily" ? "day" : "all";
@@ -103,6 +124,10 @@ export function GameScreen() {
       };
       trackFinish(run);
       setStreak(touchStreak());
+      if (now.boost > 1) {
+        writeSave({ boost: 1 });
+        setBoost(1);
+      }
       if (now.score > 0) {
         // No name yet: hold the run and post it the moment one is picked.
         if (loadSave().name) {
@@ -178,6 +203,65 @@ export function GameScreen() {
     gameRef.current?.setDifficulty(next);
   };
 
+  const claimGift = () => {
+    const save = loadSave();
+    if (save.lastGift === todayKey()) return;
+    const day = (save.gifts % GIFTS.length) + 1;
+    const reward = giftFor(day);
+    let nextKeys = save.keys;
+    let nextBoost = save.boost;
+    let nextPalette = save.palette;
+    let nextPalettes = save.palettes;
+    let note = `Day ${day}: ${rewardText(reward)}`;
+    if (reward.kind === "keys") {
+      nextKeys += reward.amount;
+    } else if (reward.kind === "boost") {
+      nextBoost = Math.max(nextBoost, reward.amount);
+    } else if (save.palettes.includes(reward.palette)) {
+      nextKeys += 4;
+      note = `Day ${day}: ${reward.label} glass already open — 4 keys instead`;
+    } else {
+      nextPalettes = [...save.palettes, reward.palette];
+      nextPalette = reward.palette;
+      note = `Day ${day}: ${reward.label} glass unlocked`;
+    }
+    writeSave({
+      keys: nextKeys,
+      boost: nextBoost,
+      palette: nextPalette,
+      palettes: nextPalettes,
+      gifts: save.gifts + 1,
+      lastGift: todayKey(),
+    });
+    setKeys(nextKeys);
+    setBoost(nextBoost);
+    setPalette(nextPalette);
+    setPalettes(nextPalettes);
+    setClaimed(save.gifts + 1);
+    setLastGift(todayKey());
+    setGiftNote(note);
+    gameRef.current?.setPalette(nextPalette);
+  };
+
+  const cyclePalette = () => {
+    if (palettes.length < 2) return;
+    const index = palettes.indexOf(palette);
+    const next = palettes[(index + 1) % palettes.length];
+    setPalette(next);
+    writeSave({ palette: next });
+    gameRef.current?.setPalette(next);
+  };
+
+  const keepStacking = () => {
+    const save = loadSave();
+    if (save.keys < 1 || revives >= MAX_REVIVES) return;
+    if (!gameRef.current?.revive()) return;
+    writeSave({ keys: save.keys - 1 });
+    setKeys(save.keys - 1);
+    setRevives(revives + 1);
+    setGiftNote("");
+  };
+
   const status =
     snap.phase === "menu"
       ? "Tideglass. Tap start to play."
@@ -204,6 +288,8 @@ export function GameScreen() {
     percentile && percentile.total > 1
       ? Math.round((percentile.beaten / percentile.total) * 100)
       : null;
+  const giftDay = (claimed % GIFTS.length) + 1;
+  const canClaimGift = lastGift !== todayKey();
   const percentileLine =
     percent === null
       ? null
@@ -244,6 +330,9 @@ export function GameScreen() {
                 {snap.title}
                 {snap.mode === "daily" ? " · daily tide" : ""}
               </p>
+              {snap.boost > 1 ? (
+                <p className="mt-1 text-xs font-medium text-ember tabular-nums">×{snap.boost} score</p>
+              ) : null}
               {snap.score === 0 ? <p className="mt-2 text-sm font-medium text-foam">Tap to drop</p> : null}
               {snap.combo > 1 ? (
                 <p className="text-sm font-medium text-ember tabular-nums">×{snap.combo} streak</p>
@@ -326,6 +415,27 @@ export function GameScreen() {
                     ))}
                   </div>
                   <p className="mt-2 text-xs text-mist">{DIFFICULTIES[snap.difficulty].note}</p>
+                  {canClaimGift ? (
+                    <button
+                      type="button"
+                      className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-ember/50 bg-ember/10 text-sm font-semibold text-ember"
+                      onClick={() => setShowGifts(true)}
+                    >
+                      <Gift className="size-4" strokeWidth={1.75} />
+                      Day {giftDay} gift ready
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="mt-4 min-h-11 w-full text-sm text-mist underline"
+                      onClick={() => setShowGifts(true)}
+                    >
+                      Daily gifts · day {giftDay}
+                    </button>
+                  )}
+                  {giftNote ? (
+                    <p className="mt-1 text-center text-xs text-ember">{giftNote}</p>
+                  ) : null}
                   <button
                     type="button"
                     className="mt-4 flex h-14 w-full items-center justify-center rounded-full bg-ember text-lg font-semibold text-ink"
@@ -336,6 +446,8 @@ export function GameScreen() {
                   <p className="mt-3 text-center text-sm text-mist">
                     {snap.best > 0 ? <span className="tabular-nums">Best {snap.best} · </span> : null}
                     {streak > 1 ? <span className="tabular-nums">{streak} day streak · </span> : null}
+                    {boost > 1 ? <span className="tabular-nums">×{boost} score · </span> : null}
+                    {keys > 0 ? <span className="tabular-nums">{keys} keys · </span> : null}
                     Tap, click, or space
                   </p>
                   <div className="mt-2 flex items-center justify-center gap-1">
@@ -353,6 +465,15 @@ export function GameScreen() {
                       Location {place === "on" ? "on" : "off"}
                     </button>
                   </div>
+                  {palettes.length > 1 ? (
+                    <button
+                      type="button"
+                      className="mt-1 min-h-11 w-full text-sm text-mist"
+                      onClick={cyclePalette}
+                    >
+                      Glass: {PALETTES[palette].label}
+                    </button>
+                  ) : null}
                   <p className="text-center text-xs text-mist">
                     {name ? (
                       <>
@@ -461,6 +582,22 @@ export function GameScreen() {
                     </div>
                   ) : null}
 
+                  {keys > 0 && revives < MAX_REVIVES ? (
+                    <button
+                      type="button"
+                      className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-ember/60 bg-ember/10 text-sm font-semibold text-ember"
+                      onClick={keepStacking}
+                    >
+                      <Key className="size-4" strokeWidth={1.75} />
+                      Keep stacking · 1 key · {keys} left
+                    </button>
+                  ) : (
+                    <p className="mt-3 text-center text-xs text-mist">
+                      {revives >= MAX_REVIVES
+                        ? "No more keys this run."
+                        : "Gifts earn keys that keep a run alive."}
+                    </p>
+                  )}
                   <button
                     type="button"
                     className="mt-5 flex h-14 w-full items-center justify-center rounded-full bg-ember text-lg font-semibold text-ink"
@@ -503,6 +640,15 @@ export function GameScreen() {
           initial={boardTab}
           difficulty={difficulty}
           onClose={() => setBoardTab(null)}
+        />
+      ) : null}
+
+      {showGifts ? (
+        <GiftSheet
+          claimed={claimed}
+          canClaim={canClaimGift}
+          onClaim={claimGift}
+          onClose={() => setShowGifts(false)}
         />
       ) : null}
     </div>

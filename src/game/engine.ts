@@ -1,7 +1,7 @@
 import { createAudio, type AudioBus } from "@/game/audio";
-import { bestFor, loadSave, writeSave, type Difficulty } from "@/game/save";
+import { bestFor, loadSave, writeSave, type Difficulty, type Palette } from "@/game/save";
 
-export type { Difficulty };
+export type { Difficulty, Palette };
 
 export type Phase = "menu" | "play" | "over";
 export type Mode = "free" | "daily";
@@ -70,6 +70,9 @@ export type Snapshot = {
   score: number;
   best: number;
   difficulty: Difficulty;
+  palette: Palette;
+  /** Score multiplier banked for this run. */
+  boost: number;
   combo: number;
   sound: boolean;
   shake: boolean;
@@ -88,6 +91,8 @@ export const INITIAL_SNAPSHOT: Snapshot = {
   score: 0,
   best: 0,
   difficulty: "medium",
+  palette: "shore",
+  boost: 1,
   combo: 0,
   sound: true,
   shake: true,
@@ -106,6 +111,9 @@ export type Game = {
   drop: () => void;
   setMode: (mode: Mode) => void;
   setDifficulty: (next: Difficulty) => void;
+  setPalette: (next: Palette) => void;
+  /** Resume an ended run from the move that missed. False when nothing to resume. */
+  revive: () => boolean;
   setGate: (gate: () => boolean) => void;
   toggleSound: () => void;
   toggleShake: () => void;
@@ -170,22 +178,56 @@ const PIER = 2.75;
 const HOVER = 0.18;
 const VY = 1.08;
 
-const GLASS: RGB[] = [
-  [232, 156, 96],
-  [214, 112, 102],
-  [232, 196, 154],
-  [78, 184, 168],
-  [64, 142, 176],
-  [186, 206, 216],
-];
+/** Glass tints. Gift days unlock the three beyond `shore`. */
+export const PALETTES: Record<Palette, { label: string; colors: RGB[] }> = {
+  shore: {
+    label: "Shore",
+    colors: [
+      [232, 156, 96],
+      [214, 112, 102],
+      [232, 196, 154],
+      [78, 184, 168],
+      [64, 142, 176],
+      [186, 206, 216],
+    ],
+  },
+  moon: {
+    label: "Moon",
+    colors: [
+      [186, 206, 216],
+      [140, 176, 200],
+      [104, 140, 176],
+      [78, 110, 150],
+      [200, 220, 230],
+      [120, 160, 190],
+    ],
+  },
+  ember: {
+    label: "Ember",
+    colors: [
+      [232, 150, 96],
+      [214, 98, 84],
+      [232, 196, 140],
+      [196, 120, 80],
+      [168, 72, 64],
+      [240, 180, 120],
+    ],
+  },
+  moss: {
+    label: "Moss",
+    colors: [
+      [120, 168, 120],
+      [78, 144, 116],
+      [168, 196, 150],
+      [96, 128, 96],
+      [60, 104, 88],
+      [190, 214, 170],
+    ],
+  },
+};
 
 const WOOD: RGB = [138, 86, 52];
 const POST: RGB = [96, 62, 40];
-
-function glassColor(layer: number): RGB {
-  const i = ((layer % GLASS.length) + GLASS.length) % GLASS.length;
-  return GLASS[i];
-}
 
 function mix(a: RGB, b: RGB, t: number): RGB {
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
@@ -241,6 +283,10 @@ export function createGame(
   let phase: Phase = "menu";
   let score = 0;
   let difficulty: Difficulty = save.difficulty;
+  let palette: Palette = save.palette;
+  let boost = save.boost > 1 ? save.boost : 1;
+  // The mover that missed, kept so a key can resume the run from it.
+  let pendingRevive: Mover | null = null;
   let best = bestFor(save, difficulty);
   let combo = 0;
   let sound = save.sound;
@@ -281,6 +327,12 @@ export function createGame(
   }));
 
   audio.setMuted(!sound);
+
+  function glassColor(layer: number): RGB {
+    const colors = PALETTES[palette].colors;
+    const i = ((layer % colors.length) + colors.length) % colors.length;
+    return colors[i];
+  }
 
   function glassCount() {
     let n = 0;
@@ -400,6 +452,7 @@ export function createGame(
       best: difficulty === "medium" ? best : current.best,
       bests: { ...current.bests, [difficulty]: best },
       difficulty,
+      palette,
       sound,
       shake: shakeTouched ? shake : null,
     });
@@ -411,6 +464,8 @@ export function createGame(
       score,
       best,
       difficulty,
+      palette,
+      boost,
       combo,
       sound,
       shake,
@@ -496,6 +551,10 @@ export function createGame(
     audio.unlock();
     audio.begin();
     crumble();
+    // A boost is banked in the save; it applies to the run it was claimed for.
+    const fresh = loadSave();
+    boost = fresh.boost > 1 ? fresh.boost : 1;
+    pendingRevive = null;
     score = 0;
     combo = 0;
     crowned = false;
@@ -566,6 +625,7 @@ export function createGame(
     const [sx, sy] = project(mover.x, mover.y + THICK + HOVER, mover.z, m);
 
     if (overlap <= 0.02 || overlap < prevS * DIFFICULTIES[difficulty].slack) {
+      const lost = mover;
       pushShard(
         {
           x: mover.x,
@@ -593,6 +653,7 @@ export function createGame(
         notify();
         return;
       }
+      pendingRevive = lost;
       resolving = true;
       overTimer = 0.62;
       trauma = Math.min(1, trauma + 0.62);
@@ -673,7 +734,7 @@ export function createGame(
       settle: 1,
       flash: perfect ? 1 : 0.45,
     });
-    score += gain;
+    score += gain * boost;
     drops += 1;
     if (mode === "free" && score > best) {
       best = score;
@@ -1198,6 +1259,25 @@ export function createGame(
       crowned = false;
       persist();
       notify();
+    },
+    setPalette(next: Palette) {
+      if (phase === "play" || next === palette) return;
+      palette = next;
+      persist();
+      notify();
+    },
+    revive() {
+      if (phase !== "over" || !pendingRevive) return false;
+      mover = pendingRevive;
+      pendingRevive = null;
+      phase = "play";
+      resolving = false;
+      overTimer = 0;
+      combo = 0;
+      landing = 0.15;
+      inputLock = 0.3;
+      notify();
+      return true;
     },
     toggleSound() {
       sound = !sound;

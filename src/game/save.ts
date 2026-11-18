@@ -9,11 +9,27 @@ export function isDifficulty(value: unknown): value is Difficulty {
   return value === "easy" || value === "medium" || value === "hard";
 }
 
+/** Glass palettes. `shore` is the free default; the rest come from gifts. */
+export type Palette = "shore" | "moon" | "ember" | "moss";
+
+export function isPalette(value: unknown): value is Palette {
+  return value === "shore" || value === "moon" || value === "ember" || value === "moss";
+}
+
 export type Save = {
   version: number;
   best: number;
   bests: Partial<Record<Difficulty, number>>;
   difficulty: Difficulty;
+  /** Keys bought with nothing but patience: daily gifts and milestones. */
+  keys: number;
+  /** Gift days claimed since the calendar started. */
+  gifts: number;
+  lastGift: string | null;
+  /** Score multiplier for the next run; 1 means none. */
+  boost: number;
+  palette: Palette;
+  palettes: Palette[];
   sound: boolean;
   shake: boolean | null;
   name: string | null;
@@ -29,6 +45,12 @@ const FALLBACK: Save = {
   best: 0,
   bests: {},
   difficulty: "medium",
+  keys: 0,
+  gifts: 0,
+  lastGift: null,
+  boost: 1,
+  palette: "shore",
+  palettes: ["shore"],
   sound: true,
   shake: null,
   name: null,
@@ -56,11 +78,23 @@ export function loadSave(): Save {
         }
       }
     }
+    const palettes: Palette[] = ["shore"];
+    if (Array.isArray(row.palettes)) {
+      for (const id of row.palettes) {
+        if (isPalette(id) && !palettes.includes(id)) palettes.push(id);
+      }
+    }
     return {
       version: VERSION,
       best: typeof row.best === "number" && Number.isFinite(row.best) && row.best > 0 ? Math.floor(row.best) : 0,
       bests,
       difficulty: isDifficulty(row.difficulty) ? row.difficulty : "medium",
+      keys: typeof row.keys === "number" && Number.isFinite(row.keys) && row.keys > 0 ? Math.floor(row.keys) : 0,
+      gifts: typeof row.gifts === "number" && Number.isFinite(row.gifts) && row.gifts > 0 ? Math.floor(row.gifts) : 0,
+      lastGift: typeof row.lastGift === "string" ? row.lastGift : null,
+      boost: typeof row.boost === "number" && row.boost >= 2 && row.boost <= 3 ? Math.floor(row.boost) : 1,
+      palette: isPalette(row.palette) ? row.palette : "shore",
+      palettes,
       sound: typeof row.sound === "boolean" ? row.sound : true,
       shake: typeof row.shake === "boolean" ? row.shake : null,
       name: typeof row.name === "string" && row.name ? row.name : null,
@@ -105,6 +139,11 @@ export function touchStreak(): number {
   const streak = save.lastDay === localDay(-1) ? save.streak + 1 : 1;
   writeSave({ streak, lastDay: today });
   return streak;
+}
+
+/** Today as a local calendar key (`YYYY-MM-DD`), matching the streak logic. */
+export function todayKey(): string {
+  return localDay();
 }
 
 /** The local best for one difficulty. Legacy saves only carry the medium best. */
