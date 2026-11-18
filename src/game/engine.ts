@@ -117,6 +117,7 @@ export type Game = {
   setPalette: (next: Palette) => void;
   /** Resume an ended run from the move that missed. False when nothing to resume. */
   revive: () => boolean;
+  home: () => void;
   setGate: (gate: () => boolean) => void;
   toggleSound: () => void;
   toggleShake: () => void;
@@ -1347,6 +1348,18 @@ export function createGame(
       if (phase === "play" || next === palette) return;
       palette = next;
       persist();
+      notify();
+    },
+    /** Back out to the title screen; an unfinished run is abandoned. */
+    home() {
+      if (phase === "menu") return;
+      pendingRevive = null;
+      resolving = false;
+      overTimer = 0;
+      landing = 0;
+      inputLock = 0.2;
+      phase = "menu";
+      buildAttract();
       notify();
     },
     revive() {

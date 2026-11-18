@@ -5,6 +5,7 @@ import {
   Crown,
   Flame,
   Gift,
+  House,
   Key,
   MapPin,
   Palette as PaletteIcon,
@@ -381,15 +382,32 @@ export function GameScreen() {
           ) : (
             <span />
           )}
-          <button
-            type="button"
-            aria-label={snap.sound ? "Mute sound" : "Unmute sound"}
-            aria-pressed={!snap.sound}
-            className="btn-ghost grid size-11 place-items-center rounded-full"
-            onClick={() => gameRef.current?.toggleSound()}
-          >
-            {snap.sound ? <Volume2 className="size-5" strokeWidth={1.75} /> : <VolumeX className="size-5" strokeWidth={1.75} />}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {snap.phase !== "menu" ? (
+              <button
+                type="button"
+                aria-label="Main menu"
+                className="btn-ghost grid size-11 place-items-center rounded-full"
+                onClick={() => {
+                  setShowName(false);
+                  setBoardTab(null);
+                  setShowGifts(false);
+                  gameRef.current?.home();
+                }}
+              >
+                <House className="size-5" strokeWidth={1.75} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              aria-label={snap.sound ? "Mute sound" : "Unmute sound"}
+              aria-pressed={!snap.sound}
+              className="btn-ghost grid size-11 place-items-center rounded-full"
+              onClick={() => gameRef.current?.toggleSound()}
+            >
+              {snap.sound ? <Volume2 className="size-5" strokeWidth={1.75} /> : <VolumeX className="size-5" strokeWidth={1.75} />}
+            </button>
+          </div>
         </header>
 
         <div className="flex-1" />
