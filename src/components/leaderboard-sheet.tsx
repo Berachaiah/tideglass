@@ -1,11 +1,31 @@
 import { useEffect, useState } from "react";
+import { Crown, X } from "lucide-react";
 import { getBoard, type Board, type Period } from "@/lib/leaderboard";
 
 const TABS: { id: Period; label: string }[] = [
   { id: "all", label: "All time" },
   { id: "week", label: "This week" },
-  { id: "day", label: "Today's tide" },
+  { id: "day", label: "Today" },
 ];
+
+function RankBadge({ rank }: { rank: number }) {
+  if (rank === 1) {
+    return (
+      <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-ember text-[11px] font-semibold text-ink tabular-nums">
+        <Crown className="size-4" strokeWidth={2.1} />
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`grid size-8 shrink-0 place-items-center rounded-xl text-[11px] font-semibold tabular-nums ${
+        rank <= 3 ? "bg-foam/15 text-foam" : "text-mist"
+      }`}
+    >
+      {rank}
+    </span>
+  );
+}
 
 export function LeaderboardSheet({
   name,
@@ -41,28 +61,49 @@ export function LeaderboardSheet({
   const inList = board?.rows.some((row) => row.name === name) ?? false;
 
   return (
-    <div className="sheet pointer-events-auto absolute inset-0 z-20 flex justify-center bg-ink/90 backdrop-blur-md">
-      <section className="safe-pad flex h-full w-full max-w-md flex-col pb-6">
-        <header className="flex items-center justify-between">
-          <h2 className="font-serif text-3xl font-semibold">Leaderboard</h2>
+    <div className="sheet pointer-events-auto absolute inset-0 z-20 flex justify-center">
+      <div aria-hidden className="absolute inset-0 bg-ink/92 backdrop-blur-2xl" />
+      <div
+        aria-hidden
+        className="absolute inset-x-0 top-0 h-72 opacity-60"
+        style={{
+          background:
+            "radial-gradient(120% 100% at 50% 0%, color-mix(in oklab, var(--color-ember) 13%, transparent), transparent 70%)",
+        }}
+      />
+
+      <section className="safe-pad relative flex h-full w-full max-w-md flex-col pb-5">
+        <header className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-medium tracking-[0.32em] text-ember uppercase">
+              Tide standings
+            </p>
+            <h2 className="mt-1.5 font-serif text-[2.1rem] leading-none font-semibold tracking-tight">
+              Leaderboard
+            </h2>
+          </div>
           <button
             type="button"
             aria-label="Close leaderboard"
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-foam/10 text-xl text-foam"
+            className="btn-ghost grid size-11 shrink-0 place-items-center rounded-full"
             onClick={onClose}
           >
-            ×
+            <X className="size-4" strokeWidth={2} />
           </button>
         </header>
-        <div className="mt-4 flex gap-2" role="tablist">
+
+        <div
+          role="tablist"
+          className="mt-4 grid grid-cols-3 gap-1 rounded-full border border-foam/10 bg-ink/50 p-1"
+        >
           {TABS.map((tab) => (
             <button
               key={tab.id}
               type="button"
               role="tab"
               aria-selected={period === tab.id}
-              className={`min-h-11 flex-1 rounded-full px-2 text-sm font-medium ${
-                period === tab.id ? "bg-ember text-ink" : "bg-foam/10 text-mist"
+              className={`min-h-9 rounded-full px-2 text-xs font-medium transition ${
+                period === tab.id ? "bg-foam text-ink" : "text-mist hover:text-foam"
               }`}
               onClick={() => setPeriod(tab.id)}
             >
@@ -70,36 +111,64 @@ export function LeaderboardSheet({
             </button>
           ))}
         </div>
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
+
+        <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
           {failed ? (
-            <p className="py-10 text-center text-sm text-mist">Could not load the board. Check your connection.</p>
+            <p className="tile mt-1 rounded-2xl px-4 py-8 text-center text-sm text-mist">
+              Could not load the board. Check your connection.
+            </p>
           ) : !board ? (
-            <p className="py-10 text-center text-sm text-mist">Loading</p>
-          ) : board.rows.length === 0 ? (
-            <p className="py-10 text-center text-sm text-mist">No scores here yet. Be the first.</p>
-          ) : (
-            <ol className="divide-y divide-foam/10">
-              {board.rows.map((row, index) => (
-                <li
-                  key={`${row.name}-${index}`}
-                  className={`flex items-center gap-3 px-2 py-3 ${row.name === name ? "rounded-xl bg-ember/15" : ""}`}
-                >
-                  <span className="w-8 text-sm text-mist tabular-nums">{index + 1}</span>
-                  <span className="min-w-0 flex-1 truncate text-base">{row.name}</span>
-                  <span className="font-serif text-2xl tabular-nums">{row.score}</span>
-                </li>
+            <div className="mt-1 space-y-1.5">
+              {Array.from({ length: 6 }, (_, i) => (
+                <div key={i} className="tile h-14 animate-pulse rounded-2xl opacity-60" />
               ))}
+            </div>
+          ) : board.rows.length === 0 && !board.me ? (
+            <p className="tile mt-1 rounded-2xl px-4 py-8 text-center text-sm text-mist">
+              No scores here yet. Be the first.
+            </p>
+          ) : (
+            <ol className="space-y-1.5">
+              {board.rows.map((row, index) => {
+                const mine = row.name === name;
+                return (
+                  <li
+                    key={`${row.name}-${index}`}
+                    className={`flex items-center gap-3 rounded-2xl px-2.5 py-3 ${
+                      mine ? "tile-lit" : "tile"
+                    }`}
+                  >
+                    <RankBadge rank={index + 1} />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{row.name}</span>
+                    {mine ? (
+                      <span className="rounded-full bg-ember/20 px-2 py-0.5 text-[9px] font-semibold tracking-[0.14em] text-ember uppercase">
+                        you
+                      </span>
+                    ) : null}
+                    <span className="font-serif text-xl leading-none font-semibold tabular-nums">
+                      {row.score}
+                    </span>
+                  </li>
+                );
+              })}
             </ol>
           )}
+
           {board?.me && !inList ? (
-            <div className="mt-3 flex items-center gap-3 rounded-xl bg-ember/15 px-2 py-3">
-              <span className="w-8 text-sm text-mist tabular-nums">{board.me.rank}</span>
-              <span className="min-w-0 flex-1 truncate text-base">{name}</span>
-              <span className="font-serif text-2xl tabular-nums">{board.me.score}</span>
+            <div className="tile-lit mt-2 flex items-center gap-3 rounded-2xl px-2.5 py-3">
+              <RankBadge rank={board.me.rank} />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
+              <span className="rounded-full bg-ember/20 px-2 py-0.5 text-[9px] font-semibold tracking-[0.14em] text-ember uppercase">
+                you
+              </span>
+              <span className="font-serif text-xl leading-none font-semibold tabular-nums">
+                {board.me.score}
+              </span>
             </div>
           ) : null}
         </div>
-        <p className="mt-3 text-center text-xs text-mist">
+
+        <p className="mt-3 text-center text-[11px] text-mist">
           {board ? `${board.total} ${board.total === 1 ? "player" : "players"}` : ""}
           {period === "day" ? " · same pattern for everyone today" : ""}
           {difficulty !== "medium" ? ` · ${difficulty} tide` : ""}
