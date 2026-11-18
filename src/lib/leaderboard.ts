@@ -79,6 +79,7 @@ type RunInput = {
   seconds: number;
   mode: "free" | "daily";
   difficulty: Difficulty;
+  boost: number;
   day: string;
 };
 
@@ -93,11 +94,14 @@ function cleanRun(input: RunInput): RunInput {
   const mode = input?.mode === "daily" ? "daily" : "free";
   const difficulty: Difficulty =
     input?.difficulty === "easy" || input?.difficulty === "hard" ? input.difficulty : "medium";
+  // Only the multipliers the gift calendar hands out are legal.
+  const boost = input?.boost === 2 || input?.boost === 3 ? input.boost : 1;
   const day = String(input?.day ?? "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error("Bad day");
   return {
     ...base,
     difficulty,
+    boost,
     score: int(input?.score, 99999),
     combo: int(input?.combo, 999),
     drops: int(input?.drops, 5000),
@@ -116,9 +120,11 @@ export const submitRun = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<RunResult> => {
     const { score, drops, seconds } = data;
     // A run has to be physically possible: every drop takes time, every
-    // successful drop is worth at least 1, and a perfect streak caps the score.
+    // successful drop is worth at least 1, and a perfect streak caps the score —
+    // multiplied by the boost the run was played with.
+    const ceiling = ((drops * (drops + 1)) / 2) * data.boost;
     if (score < 1) return { ok: false, error: "Nothing to post." };
-    if (score < drops || score > (drops * (drops + 1)) / 2) return { ok: false, error: "That run did not add up." };
+    if (score < drops || score > ceiling) return { ok: false, error: "That run did not add up." };
     if (seconds + 2 < drops * 0.35) return { ok: false, error: "That run was too fast." };
     if (data.mode === "daily" && data.day !== utcDay() && data.day !== utcDay(-1)) {
       return { ok: false, error: "That tide has already passed." };
@@ -132,8 +138,8 @@ export const submitRun = createServerFn({ method: "POST" })
     `;
     if ((recent[0]?.n ?? 0) > 0) return { ok: false, error: "Slow down a moment." };
     await sql`
-      insert into runs (player_id, score, combo, drops, seconds, mode, day, difficulty)
-      values (${who.id}, ${score}, ${data.combo}, ${drops}, ${seconds}, ${data.mode}, ${data.mode === "daily" ? data.day : null}, ${data.difficulty})
+      insert into runs (player_id, score, combo, drops, seconds, mode, day, difficulty, boost)
+      values (${who.id}, ${score}, ${data.combo}, ${drops}, ${seconds}, ${data.mode}, ${data.mode === "daily" ? data.day : null}, ${data.difficulty}, ${data.boost})
     `;
     const mine = await sql<{ score: number }>`
       select max(score)::int as score from runs

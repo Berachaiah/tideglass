@@ -53,6 +53,7 @@ type Extra = {
   perfects?: number;
   mode?: Mode;
   difficulty?: Difficulty;
+  boost?: number;
 };
 
 function send(kind: "open" | "start" | "finish", extra: Extra = {}) {
@@ -95,6 +96,8 @@ export type Finish = {
   perfects: number;
   mode: Mode;
   difficulty: Difficulty;
+  /** Score multiplier the run was played with; 1 means none. */
+  boost: number;
 };
 
 export function trackFinish(run: Finish) {
@@ -105,6 +108,7 @@ export function trackFinish(run: Finish) {
     perfects: run.perfects,
     mode: run.mode,
     difficulty: run.difficulty,
+    boost: run.boost,
   });
 }
 

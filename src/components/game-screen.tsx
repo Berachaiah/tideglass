@@ -12,7 +12,7 @@ import {
   type Snapshot,
 } from "@/game/engine";
 import { currentStreak, loadSave, todayKey, touchStreak, writeSave } from "@/game/save";
-import { GIFTS, MAX_REVIVES, giftFor, rewardText } from "@/game/rewards";
+import { GIFTS, MAX_REVIVES, REVIVE_COST, giftFor, rewardText } from "@/game/rewards";
 import { postRun, retryPending, trackFinish, trackOpen, trackStart, visitorId, type Finish } from "@/game/track";
 import { shareRun } from "@/game/share";
 import { clearPlace, getBoard, savePlace, type BoardRow, type Period, type RunResult } from "@/lib/leaderboard";
@@ -90,6 +90,7 @@ export function GameScreen() {
     };
   }, []);
 
+  const runIdRef = useRef(0);
   const phaseRef = useRef(snap.phase);
   useEffect(() => {
     const from = phaseRef.current;
@@ -100,8 +101,12 @@ export function GameScreen() {
       setShareNote("");
       setPercentile(null);
       heldRun.current = null;
-      // A revive also lands here; only a fresh run resets the key budget.
-      if (from === "menu") setRevives(0);
+      // A revive also lands here, so the run's identity — not the phase —
+      // decides when the key budget resets.
+      if (now.runId !== runIdRef.current) {
+        runIdRef.current = now.runId;
+        setRevives(0);
+      }
       trackStart(now.mode);
       if (nameRef.current) {
         const period: Period = now.mode === "daily" ? "day" : "all";
@@ -121,6 +126,7 @@ export function GameScreen() {
         perfects: now.perfects,
         mode: now.mode,
         difficulty: now.difficulty,
+        boost: now.boost,
       };
       trackFinish(run);
       setStreak(touchStreak());
@@ -254,10 +260,10 @@ export function GameScreen() {
 
   const keepStacking = () => {
     const save = loadSave();
-    if (save.keys < 1 || revives >= MAX_REVIVES) return;
+    if (save.keys < REVIVE_COST || revives >= MAX_REVIVES) return;
     if (!gameRef.current?.revive()) return;
-    writeSave({ keys: save.keys - 1 });
-    setKeys(save.keys - 1);
+    writeSave({ keys: save.keys - REVIVE_COST });
+    setKeys(save.keys - REVIVE_COST);
     setRevives(revives + 1);
     setGiftNote("");
   };
@@ -315,11 +321,11 @@ export function GameScreen() {
       ref={rootRef}
       className="relative h-dvh w-full touch-none overflow-hidden bg-tide text-foam select-none"
     >
-      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" aria-hidden />
+      <canvas ref={canvasRef} className="absolute inset-0 z-0 h-full w-full" aria-hidden />
       <p className="sr-only" aria-live="polite">
         {status}
       </p>
-      <div className="pointer-events-none absolute inset-0 flex flex-col">
+      <div className="pointer-events-none absolute inset-0 z-10 flex flex-col">
         <header className="safe-pad pointer-events-auto flex items-start justify-between">
           {snap.phase === "play" ? (
             <div>
@@ -366,7 +372,7 @@ export function GameScreen() {
 
         {snap.phase !== "play" ? (
           <div className="safe-bottom pointer-events-none flex justify-center">
-            <section className="sheet sheet-in pointer-events-auto max-h-[88dvh] w-full max-w-md overflow-y-auto rounded-t-3xl border border-foam/10 bg-ink/80 px-6 pt-6 pb-6 shadow-2xl backdrop-blur-md">
+            <section className="sheet sheet-in pointer-events-auto max-h-[88dvh] w-full max-w-md overflow-y-auto rounded-t-3xl border border-foam/10 bg-ink/95 px-6 pt-6 pb-6 shadow-2xl backdrop-blur-xl">
               {showName ? (
                 <NameForm
                   onDone={(chosen) => {
@@ -589,7 +595,7 @@ export function GameScreen() {
                       onClick={keepStacking}
                     >
                       <Key className="size-4" strokeWidth={1.75} />
-                      Keep stacking · 1 key · {keys} left
+                      Keep stacking · {REVIVE_COST} key · {keys} left
                     </button>
                   ) : (
                     <p className="mt-3 text-center text-xs text-mist">

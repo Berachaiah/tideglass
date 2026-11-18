@@ -67,6 +67,8 @@ function titleIndex(drops: number) {
 
 export type Snapshot = {
   phase: Phase;
+  /** Increments on every new run, so a revive can be told from a restart. */
+  runId: number;
   score: number;
   best: number;
   difficulty: Difficulty;
@@ -88,6 +90,7 @@ export type Snapshot = {
 
 export const INITIAL_SNAPSHOT: Snapshot = {
   phase: "menu",
+  runId: 0,
   score: 0,
   best: 0,
   difficulty: "medium",
@@ -281,6 +284,7 @@ export function createGame(
   const audio: AudioBus = createAudio();
 
   let phase: Phase = "menu";
+  let runId = 0;
   let score = 0;
   let difficulty: Difficulty = save.difficulty;
   let palette: Palette = save.palette;
@@ -461,6 +465,7 @@ export function createGame(
   function snap(): Snapshot {
     return {
       phase,
+      runId,
       score,
       best,
       difficulty,
@@ -555,6 +560,7 @@ export function createGame(
     const fresh = loadSave();
     boost = fresh.boost > 1 ? fresh.boost : 1;
     pendingRevive = null;
+    runId += 1;
     score = 0;
     combo = 0;
     crowned = false;

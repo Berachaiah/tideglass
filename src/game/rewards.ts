@@ -3,6 +3,9 @@ import type { Palette } from "@/game/save";
 /** Keys a run may spend to keep the stack alive after a miss. */
 export const MAX_REVIVES = 2;
 
+/** Keys one revive costs. */
+export const REVIVE_COST = 1;
+
 export type Reward =
   | { kind: "keys"; amount: number }
   | { kind: "boost"; amount: number }

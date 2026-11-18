@@ -47,6 +47,7 @@ type EventInput = {
   hour?: number;
   mode?: "free" | "daily";
   difficulty?: "easy" | "medium" | "hard";
+  boost?: number;
 };
 
 function cleanEvent(input: EventInput): EventInput {
@@ -65,6 +66,8 @@ function cleanEvent(input: EventInput): EventInput {
     const perfects = Math.floor(Number(input.perfects));
     if (Number.isFinite(seconds) && seconds >= 0 && seconds <= 86400) out.seconds = seconds;
     if (Number.isFinite(perfects) && perfects >= 0 && perfects <= 5000) out.perfects = perfects;
+    const boost = Math.floor(Number(input.boost));
+    if (Number.isFinite(boost) && boost > 1 && boost <= 3) out.boost = boost;
   }
   if (input.device === "phone" || input.device === "desktop") out.device = input.device;
   if (typeof input.returning === "boolean") out.returning = input.returning;
@@ -84,12 +87,13 @@ export const recordEvent = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const sql = await getSql();
     await sql`
-      insert into plays (visitor, kind, score, combo, seconds, perfects, device, returning_player, sound_on, shake_on, local_hour, mode, difficulty)
+      insert into plays (visitor, kind, score, combo, seconds, perfects, device, returning_player, sound_on, shake_on, local_hour, mode, difficulty, boost)
       values (
         ${data.visitor}, ${data.kind}, ${data.score ?? null}, ${data.combo ?? null},
         ${data.seconds ?? null}, ${data.perfects ?? null}, ${data.device ?? null},
         ${data.returning ?? null}, ${data.sound ?? null}, ${data.shake ?? null},
-        ${data.hour ?? null}, ${data.mode ?? null}, ${data.difficulty ?? null}
+        ${data.hour ?? null}, ${data.mode ?? null}, ${data.difficulty ?? null},
+        ${data.boost ?? null}
       )
     `;
     return { ok: true as const };
