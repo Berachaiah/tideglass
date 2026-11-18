@@ -29,7 +29,7 @@ import {
   type Snapshot,
 } from "@/game/engine";
 import { currentStreak, loadSave, todayKey, touchStreak, writeSave } from "@/game/save";
-import { GIFTS, MAX_REVIVES, REVIVE_COST, giftFor, rewardText } from "@/game/rewards";
+import { GIFTS, MAX_REVIVES, REVIVE_COST, giftFor, rewardText, type Reward } from "@/game/rewards";
 import { postRun, retryPending, trackFinish, trackOpen, trackStart, visitorId, type Finish } from "@/game/track";
 import { shareRun } from "@/game/share";
 import { clearPlace, getBoard, savePlace, type BoardRow, type Period, type RunResult } from "@/lib/leaderboard";
@@ -37,6 +37,7 @@ import { InstallBanner } from "@/components/install-banner";
 import { LeaderboardSheet } from "@/components/leaderboard-sheet";
 import { NameForm } from "@/components/name-form";
 import { GiftSheet } from "@/components/gift-sheet";
+import { RewardArt } from "@/components/reward-art";
 
 const CREDIT_URL = "https://berachaiah-portfolio.vercel.app/";
 
@@ -319,6 +320,7 @@ export function GameScreen() {
       ? Math.round((percentile.beaten / percentile.total) * 100)
       : null;
   const giftDay = (claimed % GIFTS.length) + 1;
+  const bannerReward = giftFor(giftDay);
   const canClaimGift = lastGift !== todayKey();
   const percentileLine =
     percent === null
@@ -350,7 +352,7 @@ export function GameScreen() {
         {status}
       </p>
       <div className="pointer-events-none absolute inset-0 z-10 flex flex-col">
-        <header className="safe-pad pointer-events-auto flex items-start justify-between">
+        <header className="safe-pad pointer-events-auto mx-auto flex w-full max-w-md items-start justify-between sm:max-w-3xl">
           {snap.phase === "play" ? (
             <div>
               <p key={snap.score} className="score-pop font-serif text-5xl leading-none tabular-nums">
@@ -395,8 +397,8 @@ export function GameScreen() {
         {snap.phase === "menu" ? <InstallBanner /> : null}
 
         {snap.phase !== "play" ? (
-          <div className="safe-bottom pointer-events-none flex justify-center">
-            <section className="sheet sheet-in pointer-events-auto max-h-[88dvh] w-full max-w-md overflow-y-auto rounded-t-3xl border border-foam/10 bg-ink/95 px-6 pt-6 pb-6 shadow-2xl backdrop-blur-xl">
+          <div className="safe-bottom pointer-events-none flex justify-center sm:items-center sm:px-6 sm:pb-8">
+            <section className="sheet sheet-in glass pointer-events-auto max-h-[88dvh] w-full max-w-md overflow-y-auto rounded-t-3xl px-6 pt-6 pb-6 sm:max-h-[min(92dvh,52rem)] sm:max-w-lg sm:rounded-[2rem] sm:px-7 sm:pt-7 sm:pb-7 lg:max-w-xl">
               {showName ? (
                 <NameForm
                   onDone={(chosen) => {
@@ -481,8 +483,8 @@ export function GameScreen() {
                       className="sheen tile-lit mt-3 flex w-full items-center gap-3 overflow-hidden rounded-2xl p-2.5 text-left"
                       onClick={() => setShowGifts(true)}
                     >
-                      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-ember/15 text-ember">
-                        <Gift className="size-5" strokeWidth={1.7} />
+                      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-ember/15">
+                        <GiftArt reward={bannerReward} className="size-7" />
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-[10px] font-semibold tracking-[0.2em] text-ember uppercase">
@@ -749,6 +751,15 @@ export function GameScreen() {
       ) : null}
     </div>
   );
+}
+
+/** Reward art for a gift, with glass gems tinted by their palette. */
+function GiftArt({ reward, className }: { reward: Reward; className?: string }) {
+  if (reward.kind === "palette") {
+    const [r, g, b] = PALETTES[reward.palette].colors[0];
+    return <RewardArt kind="palette" color={`rgb(${r} ${g} ${b})`} className={className} />;
+  }
+  return <RewardArt kind={reward.kind} className={className} />;
 }
 
 /** One of the three economy counters on the menu. */

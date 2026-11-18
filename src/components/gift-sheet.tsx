@@ -1,18 +1,18 @@
-import { Check, ChevronRight, Flame, Gem, Key, X, Zap } from "lucide-react";
+import { Check, ChevronRight, Flame, X } from "lucide-react";
 import { PALETTES } from "@/game/engine";
 import { GIFTS, giftFor, rewardText, type Reward } from "@/game/rewards";
+import { RewardArt } from "@/components/reward-art";
 
 const swatch = (rgb: [number, number, number] | number[]) => `rgb(${rgb[0]} ${rgb[1]} ${rgb[2]})`;
 
-/** Icon for a reward; palette prizes take the colour of the glass they unlock. */
-function RewardGlyph({ reward, className }: { reward: Reward; className?: string }) {
-  if (reward.kind === "keys") return <Key className={className} strokeWidth={1.7} />;
-  if (reward.kind === "boost") return <Zap className={className} strokeWidth={1.7} />;
+function artFor(reward: Reward) {
+  if (reward.kind === "keys") return <RewardArt kind="keys" className="size-8 sm:size-9" />;
+  if (reward.kind === "boost") return <RewardArt kind="boost" className="size-8 sm:size-9" />;
   return (
-    <Gem
-      className={className}
-      strokeWidth={1.7}
-      style={{ color: swatch(PALETTES[reward.palette].colors[0]) }}
+    <RewardArt
+      kind="palette"
+      color={swatch(PALETTES[reward.palette].colors[0])}
+      className="size-8 sm:size-9"
     />
   );
 }
@@ -51,7 +51,7 @@ export function GiftSheet({
   const cycle = Math.round((done / GIFTS.length) * 100);
 
   return (
-    <div className="sheet pointer-events-auto absolute inset-0 z-20 flex justify-center">
+    <div className="sheet pointer-events-auto absolute inset-0 z-20 flex justify-center sm:items-center sm:p-6">
       <div aria-hidden className="absolute inset-0 bg-ink/92 backdrop-blur-2xl" />
       <div
         aria-hidden
@@ -62,13 +62,13 @@ export function GiftSheet({
         }}
       />
 
-      <section className="safe-pad relative flex h-full w-full max-w-md flex-col pb-5">
+      <section className="safe-pad relative flex h-full w-full max-w-md flex-col pb-5 sm:h-auto sm:max-h-[92dvh] sm:max-w-2xl sm:rounded-[2rem] sm:border sm:border-foam/10 sm:bg-ink/80 sm:overflow-y-auto sm:pb-6 sm:shadow-2xl sm:backdrop-blur-2xl lg:max-w-5xl">
         <header className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[10px] font-medium tracking-[0.32em] text-ember uppercase">
               Tide calendar
             </p>
-            <h2 className="mt-1.5 font-serif text-[2.1rem] leading-none font-semibold tracking-tight">
+            <h2 className="mt-1.5 font-serif text-[2.1rem] leading-none font-semibold tracking-tight sm:text-[2.4rem]">
               Daily gifts
             </h2>
           </div>
@@ -82,7 +82,9 @@ export function GiftSheet({
           </button>
         </header>
 
-        <div className="mt-4 flex items-center justify-between gap-3">
+        <div className="mt-4 flex min-h-0 flex-1 flex-col lg:mt-5 lg:grid lg:grid-cols-[minmax(0,1fr)_15rem] lg:items-start lg:gap-6">
+          <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex items-center justify-between gap-3">
           <p className="text-xs text-mist tabular-nums">
             Day <span className="font-semibold text-foam">{nextDay}</span> of {GIFTS.length}
           </p>
@@ -100,7 +102,7 @@ export function GiftSheet({
           />
         </div>
 
-        <div className="mt-3 grid min-h-0 flex-1 auto-rows-fr grid-cols-5 gap-2">
+        <div className="mt-3 grid min-h-0 flex-1 auto-rows-fr grid-cols-5 gap-2 sm:flex-none sm:auto-rows-[minmax(0,5rem)] sm:grid-cols-6 sm:gap-2.5 lg:auto-rows-[minmax(0,6.4rem)]">
           {GIFTS.map((reward, index) => {
             const day = index + 1;
             const isClaimed = index < done;
@@ -127,35 +129,36 @@ export function GiftSheet({
                 >
                   {isToday ? "today" : day}
                 </span>
-                <RewardGlyph
-                  reward={reward}
-                  className={`mt-1.5 size-4 ${isToday ? "text-ember" : isClaimed ? "" : "text-foam/80"}`}
-                />
-                <span className="mt-1 text-[11px] leading-none font-semibold tabular-nums">
+                <span className={`mt-1 ${isClaimed ? "opacity-45 saturate-50" : ""}`}>
+                  {artFor(reward)}
+                </span>
+                <span className="mt-0.5 text-[10px] leading-none font-semibold tabular-nums sm:text-[11px]">
                   {chipText(reward)}
                 </span>
               </div>
             );
           })}
         </div>
+          </div>
 
-        <div className="glass mt-4 rounded-3xl p-2">
+        <div className="flex flex-col gap-3 lg:mt-0">
+        <div className="glass mt-4 rounded-3xl p-2 sm:mt-5 lg:mt-0">
           <div key={nextDay} className="reward-pop flex items-center gap-3 px-2 py-2">
             <span
-              className={`grid size-11 shrink-0 place-items-center rounded-2xl ${
-                canClaim ? "bg-ember/15 text-ember" : "bg-foam/8 text-mist"
+              className={`grid size-12 shrink-0 place-items-center rounded-2xl ${
+                canClaim ? "bg-ember/15" : "bg-foam/8"
               }`}
             >
-              <RewardGlyph reward={today} className="size-5" />
+              {artFor(today)}
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-[10px] font-medium tracking-[0.22em] text-mist uppercase">
                 {canClaim ? `Day ${nextDay}` : "Next up"}
               </p>
-              <p className="mt-0.5 truncate text-sm font-semibold text-foam">{rewardText(today)}</p>
+              <p className="mt-0.5 text-sm font-semibold text-balance text-foam">{rewardText(today)}</p>
             </div>
             {canClaim ? (
-              <span className="rounded-full bg-ember/15 px-2 py-1 text-[10px] font-semibold tracking-[0.12em] text-ember uppercase">
+              <span className="rounded-full bg-ember/15 px-2 py-1 text-[10px] font-semibold tracking-[0.12em] text-ember uppercase lg:hidden">
                 ready
               </span>
             ) : null}
@@ -185,6 +188,40 @@ export function GiftSheet({
               ? "One gift a day. Keys keep a run alive after a miss."
               : `Next gift in ${untilTomorrow()} · miss a day and the calendar waits`}
           </p>
+        </div>
+
+          <div className="tile hidden rounded-2xl p-3 lg:block">
+            <p className="text-[10px] font-medium tracking-[0.22em] text-mist uppercase">
+              Day {GIFTS.length} jackpot
+            </p>
+            <div className="mt-2 flex items-center gap-2.5">
+              <RewardArt kind="keys" className="size-7" />
+              <span className="text-sm font-semibold text-foam">
+                {rewardText(GIFTS[GIFTS.length - 1])}
+              </span>
+            </div>
+          </div>
+
+          <div className="tile hidden rounded-2xl p-3 lg:block">
+            <p className="text-[10px] font-medium tracking-[0.22em] text-mist uppercase">
+              What they do
+            </p>
+            <ul className="mt-2.5 space-y-2.5 text-[11px] leading-snug text-mist">
+              <li className="flex items-center gap-2">
+                <RewardArt kind="keys" className="size-6 shrink-0" />
+                Keys buy one more drop after a miss.
+              </li>
+              <li className="flex items-center gap-2">
+                <RewardArt kind="boost" className="size-6 shrink-0" />
+                A boost doubles or triples one run.
+              </li>
+              <li className="flex items-center gap-2">
+                <RewardArt kind="palette" color="rgb(143 211 196)" className="size-6 shrink-0" />
+                Glass sets recolour every pane.
+              </li>
+            </ul>
+          </div>
+        </div>
         </div>
       </section>
     </div>

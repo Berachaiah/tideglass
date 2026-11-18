@@ -61,7 +61,7 @@ export function LeaderboardSheet({
   const inList = board?.rows.some((row) => row.name === name) ?? false;
 
   return (
-    <div className="sheet pointer-events-auto absolute inset-0 z-20 flex justify-center">
+    <div className="sheet pointer-events-auto absolute inset-0 z-20 flex justify-center sm:items-center sm:p-6">
       <div aria-hidden className="absolute inset-0 bg-ink/92 backdrop-blur-2xl" />
       <div
         aria-hidden
@@ -72,7 +72,7 @@ export function LeaderboardSheet({
         }}
       />
 
-      <section className="safe-pad relative flex h-full w-full max-w-md flex-col pb-5">
+      <section className="safe-pad relative flex h-full w-full max-w-md flex-col pb-5 sm:h-auto sm:max-h-[92dvh] sm:max-w-xl sm:rounded-[2rem] sm:border sm:border-foam/10 sm:bg-ink/80 sm:pb-6 sm:shadow-2xl sm:backdrop-blur-2xl">
         <header className="flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-medium tracking-[0.32em] text-ember uppercase">

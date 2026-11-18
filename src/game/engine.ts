@@ -884,6 +884,19 @@ export function createGame(
     ctx.closePath();
   }
 
+  /** Shrink a polygon toward its centre, for bevels and inner rims. */
+  function insetPts(pts: Pt[], k: number): Pt[] {
+    let cx = 0;
+    let cy = 0;
+    for (const p of pts) {
+      cx += p[0];
+      cy += p[1];
+    }
+    cx /= pts.length;
+    cy /= pts.length;
+    return pts.map(([x, y]) => [cx + (x - cx) * k, cy + (y - cy) * k] as Pt);
+  }
+
   function rotatePts(pts: Pt[], ang: number): Pt[] {
     if (!ang) return pts;
     let cx = 0;
@@ -936,34 +949,98 @@ export function createGame(
 
     const col = b.kind === "wood" ? (b.w < 0.4 ? POST : WOOD) : glassColor(b.layer);
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = rgb(mix(col, [6, 8, 10], 0.48));
-    poly(ctx, faceX);
-    ctx.fill();
-    ctx.fillStyle = rgb(mix(col, [255, 255, 255], b.kind === "glass" ? 0.14 : 0.04));
-    poly(ctx, faceZ);
-    ctx.fill();
 
     if (b.kind === "glass") {
-      const g = ctx.createLinearGradient(top[0][0], top[0][1], top[2][0], top[2][1]);
-      g.addColorStop(0, rgb(mix(col, [255, 255, 255], 0.48)));
-      g.addColorStop(0.55, rgb(mix(col, [255, 255, 255], 0.18)));
-      g.addColorStop(1, rgb(mix(col, [20, 28, 32], 0.08)));
-      ctx.fillStyle = g;
-    } else {
-      ctx.fillStyle = rgb(mix(col, [255, 236, 214], 0.16));
-    }
-    poly(ctx, top);
-    ctx.fill();
+      const yTop = Math.min(top[0][1], top[1][1], top[2][1], top[3][1]);
+      const yBot = Math.max(faceX[0][1], faceX[1][1], faceZ[1][1], faceZ[0][1]);
 
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(6,16,22,0.38)";
-    poly(ctx, faceX);
-    ctx.stroke();
-    poly(ctx, faceZ);
-    ctx.stroke();
-    ctx.strokeStyle = b.kind === "glass" ? "rgba(255,255,255,0.42)" : "rgba(255,236,214,0.18)";
-    poly(ctx, top);
-    ctx.stroke();
+      // Contact shadow: the pane presses into whatever is holding it up.
+      const bx = (faceX[0][0] + faceX[1][0] + faceZ[1][0] + faceZ[0][0]) / 4;
+      const by = yBot;
+      const rx = Math.max(6, Math.hypot(faceX[0][0] - faceX[1][0], faceX[0][1] - faceX[1][1]) * 0.6);
+      const contact = ctx.createRadialGradient(bx, by, 1, bx, by, rx);
+      contact.addColorStop(0, "rgba(3,8,12,0.42)");
+      contact.addColorStop(0.58, "rgba(3,8,12,0.18)");
+      contact.addColorStop(1, "rgba(3,8,12,0)");
+      ctx.fillStyle = contact;
+      ctx.beginPath();
+      ctx.ellipse(bx, by, rx, rx * 0.32, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Edge walls: lit where they leave the top, deep where they meet the shelf.
+      const light = ctx.createLinearGradient(0, yTop, 0, yBot);
+      light.addColorStop(0, rgb(mix(col, [255, 255, 255], 0.46)));
+      light.addColorStop(0.28, rgb(mix(col, [18, 30, 34], 0.22)));
+      light.addColorStop(1, rgb(mix(col, [4, 10, 14], 0.62)));
+      ctx.fillStyle = light;
+      poly(ctx, faceZ);
+      ctx.fill();
+
+      const shade = ctx.createLinearGradient(0, yTop, 0, yBot);
+      shade.addColorStop(0, rgb(mix(col, [255, 255, 255], 0.3)));
+      shade.addColorStop(0.3, rgb(mix(col, [12, 22, 28], 0.38)));
+      shade.addColorStop(1, rgb(mix(col, [3, 8, 12], 0.72)));
+      ctx.fillStyle = shade;
+      poly(ctx, faceX);
+      ctx.fill();
+
+      // The pane itself: frosted, with a sheen travelling across it.
+      const face = ctx.createLinearGradient(top[0][0], top[0][1], top[2][0], top[2][1]);
+      face.addColorStop(0, rgb(mix(col, [255, 255, 255], 0.58)));
+      face.addColorStop(0.5, rgb(mix(col, [255, 255, 255], 0.26)));
+      face.addColorStop(1, rgb(mix(col, [22, 30, 36], 0.1)));
+      ctx.fillStyle = face;
+      poly(ctx, top);
+      ctx.fill();
+
+      ctx.save();
+      poly(ctx, top);
+      ctx.clip();
+      ctx.strokeStyle = "rgba(255,255,255,0.34)";
+      ctx.lineWidth = 1.2;
+      poly(ctx, insetPts(top, 0.84));
+      ctx.stroke();
+      const minX = Math.min(top[0][0], top[1][0], top[2][0], top[3][0]);
+      const maxX = Math.max(top[0][0], top[1][0], top[2][0], top[3][0]);
+      const sheen = ctx.createLinearGradient(minX, yTop, maxX, yBot);
+      sheen.addColorStop(0, "rgba(255,255,255,0)");
+      sheen.addColorStop(0.4, "rgba(255,255,255,0.26)");
+      sheen.addColorStop(0.52, "rgba(255,255,255,0.05)");
+      sheen.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = sheen;
+      poly(ctx, top);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(6,16,22,0.3)";
+      poly(ctx, faceX);
+      ctx.stroke();
+      poly(ctx, faceZ);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,0.52)";
+      poly(ctx, top);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = rgb(mix(col, [6, 8, 10], 0.48));
+      poly(ctx, faceX);
+      ctx.fill();
+      ctx.fillStyle = rgb(mix(col, [255, 255, 255], 0.04));
+      poly(ctx, faceZ);
+      ctx.fill();
+      ctx.fillStyle = rgb(mix(col, [255, 236, 214], 0.16));
+      poly(ctx, top);
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(6,16,22,0.38)";
+      poly(ctx, faceX);
+      ctx.stroke();
+      poly(ctx, faceZ);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(255,236,214,0.18)";
+      poly(ctx, top);
+      ctx.stroke();
+    }
 
     if (b.kind === "wood" && b.w > 1) {
       ctx.strokeStyle = "rgba(48,26,14,0.35)";
